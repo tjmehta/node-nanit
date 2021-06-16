@@ -7,14 +7,14 @@
   "scripts": {
     "prepublish": "npm run build",
     "build": "tsc -p tsconfig.json && tsc -p tsconfig-cjs.json",
-    "test": "jest --coverage"
+    "test": "jest --coverage",
+    "test-real": "node -r dotenv/config node_modules/.bin/jest --coverage"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tjmehta/node-module-template.git"
   },
-  "keywords": [
-  ],
+  "keywords": [],
   "author": "Tejesh Mehta",
   "license": "MIT",
   "bugs": {
@@ -27,8 +27,15 @@
     "@types/jest": "^25.2.3",
     "babel-core": "^6.26.3",
     "babel-jest": "^26.0.1",
+    "dotenv": "^10.0.0",
     "jest": "^26.0.1",
+    "node-fetch": "^2.6.1",
     "prettier": "^2.0.5",
     "typescript": "^3.9.3"
+  },
+  "dependencies": {
+    "baseerr": "^1.0.1",
+    "memoize-concurrent": "^1.1.1",
+    "simple-api-client": "^3.0.1"
   }
 }
