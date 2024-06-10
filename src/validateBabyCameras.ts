@@ -17,7 +17,7 @@ export type CameraType = {
   privateAddress: string // // `${ip}:${port}`
   speaker: boolean
 }
-
+console.log(BaseError)
 class InvalidBabiesError extends BaseError<{ json: {} }> {}
 class InvalidCameraError extends BaseError<{ camera: {} }> {}
 
@@ -25,7 +25,7 @@ export default function validateBabyCameras(json: any): Array<CameraType> {
   if (typeof json != 'object') {
     throw new InvalidBabiesError('invalid babies response', { json })
   }
-  if (Array.isArray(json.babies)) {
+  if (!Array.isArray(json.babies)) {
     throw new InvalidBabiesError('invalid babies property', { json })
   }
   return json.babies
