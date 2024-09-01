@@ -48,6 +48,7 @@ export default class Nanit extends ApiClient {
   sessionCache: { value: SessionType; date: Date } | null | undefined
   mfaSessionCache: { value: MfaSessionType; date: Date } | null | undefined
   cameraSocketManagers = new Map<string, CameraSocketManager>()
+  camerasCache: { value: Array<CameraType>; date: Date } | null | undefined
 
   get authStatus() {
     const auth = this.auth
@@ -299,10 +300,24 @@ export default class Nanit extends ApiClient {
     },
   )
 
-  async getCameras(): Promise<Array<CameraType>> {
+  async getCameras(force?: boolean): Promise<Array<CameraType>> {
+    if (
+      this.camerasCache != null &&
+      this.camerasCache.date.getTime() > Date.now() - 1000 * 60 * 5 &&
+      !force
+    ) {
+      return this.camerasCache.value
+    }
+
     const json = await this.get('babies', 200)
 
-    return validateBabyCameras(json)
+    const cameras = validateBabyCameras(json)
+    this.camerasCache = {
+      value: cameras,
+      date: new Date(),
+    }
+
+    return cameras
   }
 
   async cameraMessages(

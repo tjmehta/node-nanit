@@ -16,6 +16,7 @@ import { StatusCodeError } from 'simple-api-client'
 import { CameraMessage, CameraMessageType } from '../validateBabyMessage'
 import { Subscription } from 'rxjs'
 import mqtt from 'async-mqtt'
+import { CameraType } from '../validateBabyCameras'
 const { get } = envVar
 
 const HTTP_PORT = get('HTTP_PORT').default(3000).asPortNumber()
@@ -33,6 +34,10 @@ const MQTT_URL = get('MQTT_URL').required().asString()
 const MQTT_USERNAME = get('MQTT_USERNAME').asString()
 const MQTT_PASSWORD = get('MQTT_PASSWORD').asString()
 const MQTT_PREFIX = get('MQTT_PREFIX').default('nanit').asString()
+
+function cameraRtmpUrl(cameraUid: string): string {
+  return `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${cameraUid}`
+}
 
 enum RtmpPublisherStatus {
   NONE = 'NONE',
@@ -104,7 +109,7 @@ class AppServer extends AbstractStartable {
 
     app.use(bodyParser())
 
-    router.get('/', (ctx: any) => {
+    router.get('/', async (ctx: any) => {
       console.log('[HTTP] GET /')
 
       const nanit = this.nanitManager.get()
@@ -150,10 +155,17 @@ class AppServer extends AbstractStartable {
 
       if (nanit.authStatus === NanitAuthStatus.AUTHED) {
         console.log('[HTTP] GET /: logged in', { session: nanit.auth.session })
+        const cameras = await nanit.getCameras()
         ctx.body = `
 <html>
   <body>
     <p>Logged in as ${nanit.email}</p>
+    <p>Camera RTMP URLs:</p>
+    <ul>
+      ${cameras
+        .map((camera) => `<li>${cameraRtmpUrl(camera.uid)}</li>`)
+        .join('\n')}
+    </ul>
     <a href="/logout">Logout</a>
   </body>
 </html>
@@ -245,7 +257,7 @@ class AppServer extends AbstractStartable {
       // Here you can implement logic similar to your Go version's publisher handling
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
-      const rtmpUrl = `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${cameraUid}`
+      const rtmpUrl = cameraRtmpUrl(cameraUid)
       const state = this.rtmpPublishers.get(cameraUid)
 
       if (state != null) {
@@ -275,7 +287,7 @@ class AppServer extends AbstractStartable {
       console.log(`[RTMP] prePlay ${path}`, { args })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
-      const rtmpUrl = `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${cameraUid}`
+      const rtmpUrl = cameraRtmpUrl(cameraUid)
       const state = this.rtmpPublishers.get(cameraUid)
 
       if (state != null) {
@@ -308,7 +320,7 @@ class AppServer extends AbstractStartable {
       console.log(`[RTMP] donePlay ${path}`, { args })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
-      const rtmpUrl = `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${cameraUid}`
+      const rtmpUrl = cameraRtmpUrl(cameraUid)
       // Handle subscriber disconnection
 
       const state = this.rtmpPublishers.get(cameraUid)
@@ -423,7 +435,7 @@ class AppServer extends AbstractStartable {
     cameraUid: string,
   ) {
     const nanit = this.nanitManager.get()
-    const rtmpUrl = `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${cameraUid}`
+    const rtmpUrl = cameraRtmpUrl(cameraUid)
 
     assert(nanit.authStatus === NanitAuthStatus.AUTHED, 'invalid auth state')
 
