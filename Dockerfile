@@ -1,4 +1,4 @@
-FROM illuspas/node-media-server
+FROM node:lts
 
 ADD . /app
 
