@@ -38,8 +38,8 @@ const MQTT_PREFIX = get('MQTT_PREFIX').default('nanit').asString()
 function cameraRtmpUrl(cameraUid: string): string {
   return `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${cameraUid}`
 }
-function mqttTopic(cameraUid: string, type: CameraMessageType): string {
-  return `${MQTT_PREFIX}/camera/${cameraUid}/${type.toLowerCase()}`
+function mqttTopic(cameraUid: string): string {
+  return `${MQTT_PREFIX}/camera/${cameraUid}/events`
 }
 
 enum RtmpPublisherStatus {
@@ -179,14 +179,13 @@ class AppServer extends AbstractStartable {
       NANIT_EVENTS_POLLING_TYPES.length > 0
         ? [
             '<ul>',
-            ...cameras.flatMap((camera) =>
-              NANIT_EVENTS_POLLING_TYPES.map(
-                (type) =>
-                  `\t<li key="${camera.uid}-${type}">${mqttTopic(
-                    camera.uid,
-                    type,
-                  )}</li>`,
-              ),
+            ...cameras.map(
+              (camera) =>
+                `\t<li key="${camera.uid}">${mqttTopic(
+                  camera.uid,
+                )} (messages: ${NANIT_EVENTS_POLLING_TYPES.map(
+                  wrapInQuotes,
+                ).join(', ')})</li>`,
             ),
             '</ul>',
           ].join('\n')
@@ -406,12 +405,10 @@ class AppServer extends AbstractStartable {
               cameraUid,
               babyUid,
               message,
+              type: message.type,
             })
-            const type = message.type
-            this.mqtt?.publish(
-              mqttTopic(cameraUid, type),
-              JSON.stringify(message),
-            )
+            // publish "SOUND" or "MOTION"
+            this.mqtt?.publish(mqttTopic(cameraUid), message.type.toUpperCase())
           },
           error: (err) => {
             console.log('[RTMP] camera message: error', {
@@ -499,3 +496,7 @@ class AppServer extends AbstractStartable {
 }
 
 export default AppServer
+
+function wrapInQuotes(str: string): string {
+  return `"${str}"`
+}
