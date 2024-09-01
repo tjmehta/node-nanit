@@ -169,7 +169,9 @@ class AppServer extends AbstractStartable {
         .map((camera) => `<li>${cameraRtmpUrl(camera.uid)}</li>`)
         .join('\n')}
     </ul>
-    <p>MQTT Topics:</p>
+    <p>MQTT Topics (messages: ${NANIT_EVENTS_POLLING_TYPES.map(
+      wrapInQuotes,
+    ).join(', ')}):</p>
     ${
       NANIT_EVENTS_POLLING_TYPES.length === 0
         ? '<p>None of the types are set</p>'
@@ -181,11 +183,7 @@ class AppServer extends AbstractStartable {
             '<ul>',
             ...cameras.map(
               (camera) =>
-                `\t<li key="${camera.uid}">${mqttTopic(
-                  camera.uid,
-                )} (messages: ${NANIT_EVENTS_POLLING_TYPES.map(
-                  wrapInQuotes,
-                ).join(', ')})</li>`,
+                `\t<li key="${camera.uid}">${mqttTopic(camera.uid)}</li>`,
             ),
             '</ul>',
           ].join('\n')
