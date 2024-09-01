@@ -75,7 +75,7 @@ class AppServer extends AbstractStartable {
     await this.startRtmpServer()
     const nanit = this.nanitManager.get()
     if (nanit.authStatus === NanitAuthStatus.AUTHED) {
-      await this.startPollingCameraMessages()
+      await this.onLogin()
     }
   }
 
@@ -186,7 +186,7 @@ class AppServer extends AbstractStartable {
       } else {
         console.log('[HTTP] POST /login: logged in')
         ctx.body = 'Login successful'
-        this.startPollingCameraMessages()
+        this.onLogin()
       }
     })
 
@@ -201,7 +201,7 @@ class AppServer extends AbstractStartable {
 
       await this.nanitManager.loginMfa(mfaCode)
       ctx.body = 'Login successful'
-      this.startPollingCameraMessages()
+      this.onLogin()
     })
 
     router.get('/logout', async (ctx: any) => {
@@ -218,6 +218,10 @@ class AppServer extends AbstractStartable {
         resolve()
       })
     })
+  }
+
+  private async onLogin() {
+    await this.startPollingCameraMessages()
   }
 
   private async startRtmpServer() {
@@ -332,6 +336,10 @@ class AppServer extends AbstractStartable {
   private async startPollingCameraMessages() {
     const nanit = this.nanitManager.get()
     const cameras = await nanit.getCameras()
+    console.log('[RTMP] getCameras', {
+      camerasUids: cameras.map((c) => c.uid),
+      babyUids: cameras.map((c) => c.babyUid),
+    })
     if (NANIT_EVENTS_POLLING_TYPES.length === 0) {
       console.log('[RTMP] no camera message types to poll')
       return
