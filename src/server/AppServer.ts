@@ -408,7 +408,10 @@ class AppServer extends AbstractStartable {
               type: message.type,
             })
             // publish "SOUND" or "MOTION"
-            this.mqtt?.publish(mqttTopic(cameraUid), message.type.toUpperCase())
+            this.mqtt?.publish(
+              mqttTopic(cameraUid),
+              message.type.toUpperCase() as CameraMessageType,
+            )
           },
           error: (err) => {
             console.log('[RTMP] camera message: error', {
