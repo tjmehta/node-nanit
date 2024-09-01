@@ -38,6 +38,9 @@ const MQTT_PREFIX = get('MQTT_PREFIX').default('nanit').asString()
 function cameraRtmpUrl(cameraUid: string): string {
   return `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${cameraUid}`
 }
+function mqttTopic(cameraUid: string, type: CameraMessageType): string {
+  return `${MQTT_PREFIX}/camera/${cameraUid}/${type.toLowerCase()}`
+}
 
 enum RtmpPublisherStatus {
   NONE = 'NONE',
@@ -166,6 +169,30 @@ class AppServer extends AbstractStartable {
         .map((camera) => `<li>${cameraRtmpUrl(camera.uid)}</li>`)
         .join('\n')}
     </ul>
+    <p>MQTT Topics:</p>
+    ${
+      NANIT_EVENTS_POLLING_TYPES.length === 0
+        ? '<p>None of the types are set</p>'
+        : ''
+    }
+    ${
+      NANIT_EVENTS_POLLING_TYPES.length > 0
+        ? [
+            '<ul>',
+            ...cameras.flatMap((camera) =>
+              NANIT_EVENTS_POLLING_TYPES.map(
+                (type) =>
+                  `\t<li key="${camera.uid}-${type}">${mqttTopic(
+                    camera.uid,
+                    type,
+                  )}</li>`,
+              ),
+            ),
+            '</ul>',
+          ].join('\n')
+        : ''
+    }
+
     <a href="/logout">Logout</a>
   </body>
 </html>
@@ -382,7 +409,7 @@ class AppServer extends AbstractStartable {
             })
             const type = message.type
             this.mqtt?.publish(
-              `${MQTT_PREFIX}/camera/${cameraUid}/${type.toLowerCase()}`,
+              mqttTopic(cameraUid, type),
               JSON.stringify(message),
             )
           },
