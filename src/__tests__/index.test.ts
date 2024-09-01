@@ -5,7 +5,7 @@ import FSPersister from '@pollyjs/persister-fs'
 import path from 'path'
 import readLine from '../utils/readLine'
 
-import Nanit from '../index'
+import Nanit, { OptsType } from '../index'
 // import fetch from './fetch.cjs'
 import { setFetch } from 'simple-api-client'
 import dotenv from 'dotenv'
@@ -22,9 +22,11 @@ if (rewriteRecordings) {
   })
 }
 
-const opts = {
-  email: process.env.EMAIL ?? '********email*********',
-  password: process.env.PASSWORD ?? '********password********',
+const opts: OptsType = {
+  credentials: {
+    email: process.env.EMAIL ?? '********email*********',
+    password: process.env.PASSWORD ?? '********password********',
+  },
 }
 
 setFetch(fetch as any)
@@ -104,8 +106,8 @@ describe('Nanit', () => {
 
   it('should login', async () => {
     const polly = (ctx.polly = await mockRequests('login'))
-
     const nanit = new Nanit(opts)
+
     const mfa = await nanit.login()
     expect(mfa).toMatchInlineSnapshot(`
       {
@@ -121,7 +123,6 @@ describe('Nanit', () => {
   it('should mfa', async () => {
     // jest.testTimeout(70000)
     const polly = (ctx.polly = await mockRequests('mfa'))
-
     const nanit = new Nanit(opts)
 
     // login w/ pass and get mfa info
@@ -134,11 +135,10 @@ describe('Nanit', () => {
       }
     `)
 
+    // login w/ mfa code
     const code = process.argv.find((v) => v === '-u')
       ? await readLine()
       : '****'
-
-    // login w/ mfa code
     const session = await nanit.loginMfa(code)
     expect(session).toMatchInlineSnapshot(`
       {
@@ -156,6 +156,7 @@ describe('Nanit', () => {
     async () => {
       const polly = (ctx.polly = await mockRequests('cameras'))
       const nanit = new Nanit(opts)
+
       // login w/ pass and get mfa info
       const mfa = await nanit.login()
       expect(mfa).toMatchInlineSnapshot(`
@@ -165,10 +166,11 @@ describe('Nanit', () => {
           "phoneSuffix": "**",
         }
       `)
+
+      // login w/ mfa code
       const code = process.argv.find((v) => v === '-u')
         ? await readLine()
         : '****'
-      // login w/ mfa code
       const session = await nanit.loginMfa(code)
       expect(session).toMatchInlineSnapshot(`
         {
@@ -177,6 +179,7 @@ describe('Nanit', () => {
           "token": "*********************token**********************",
         }
       `)
+
       const cameras = await nanit.getCameras()
       expect(cameras).toMatchInlineSnapshot(`
         [
@@ -202,8 +205,65 @@ describe('Nanit', () => {
           },
         ]
       `)
+
       await polly.stop()
     },
     60 * 1000,
+  )
+
+  it.only(
+    'should start camera streaming',
+    async () => {
+      const polly = (ctx.polly = await mockRequests('cameras'))
+      const nanit = new Nanit({
+        ...opts,
+        session: {
+          accessToken: 'a651c7ca8dae425ab2953e26ad68d7baddfa71c47fb40901',
+          refreshToken: 'af9f802775692856258c5b4fd25e45382ec5e391ea7ca17b',
+          token: 'a651c7ca8dae425ab2953e26ad68d7baddfa71c47fb40901',
+        },
+      })
+      // // login w/ pass and get mfa info
+      // const mfa = await nanit.login()
+      // // login w/ mfa code
+      // const code = process.argv.find((v) => v === '-u')
+      //   ? await readLine()
+      //   : '****'
+      // const session = await nanit.loginMfa(code)
+      // expect(session).toMatchInlineSnapshot(`
+      //   {
+      //     "accessToken": "de321adbc34606c6e8f1146b4121ebb0a3e0a6aff8c060ec",
+      //     "refreshToken": "0c99339916f3a441c44de881ba9d994389fcae9ddcb8bae0",
+      //     "token": "de321adbc34606c6e8f1146b4121ebb0a3e0a6aff8c060ec",
+      //   }
+      // `)
+      const cameras = await nanit.getCameras()
+      const camera = cameras[0]
+      expect(camera).toMatchInlineSnapshot(`
+        {
+          "active": true,
+          "connected": true,
+          "hardware": "gen_2",
+          "mode": "STAND",
+          "privateAddress": "192.168.1.237:442",
+          "publicAddress": "24.7.8.87:35664",
+          "speaker": true,
+          "uid": "N301CMN23332EF",
+        }
+      `)
+
+      await polly.stop()
+      const rtmpUrl = `rtmp://192.168.1.242:1935/live/${camera.uid}`
+      // const rtmpUrl = 'rtmp://192.168.1.240:1935/local/N301CMN23332EF'
+      const payload = await nanit.requestStreaming(camera.uid, rtmpUrl)
+      expect(payload).toMatchInlineSnapshot(`
+        {
+          "requestId": 1,
+          "requestType": "PUT_STREAMING",
+          "statusCode": 200,
+        }
+      `)
+    },
+    600 * 1000,
   )
 })

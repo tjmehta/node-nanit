@@ -5121,7 +5121,7 @@
              * @interface IResponse
              * @property {number} requestId Response requestId
              * @property {client.RequestType} requestType Response requestType
-             * @property {number} statusCode Response statusCode
+             * @property {number|null} [statusCode] Response statusCode
              * @property {string|null} [statusMessage] Response statusMessage
              * @property {client.IStatus|null} [status] Response status
              * @property {Array.<client.ISensorData>|null} [sensorData] Response sensorData
@@ -5226,7 +5226,8 @@
                     writer = $Writer.create();
                 writer.uint32(/* id 1, wireType 0 =*/8).int32(message.requestId);
                 writer.uint32(/* id 2, wireType 0 =*/16).int32(message.requestType);
-                writer.uint32(/* id 3, wireType 0 =*/24).int32(message.statusCode);
+                if (message.statusCode != null && Object.hasOwnProperty.call(message, "statusCode"))
+                    writer.uint32(/* id 3, wireType 0 =*/24).int32(message.statusCode);
                 if (message.statusMessage != null && Object.hasOwnProperty.call(message, "statusMessage"))
                     writer.uint32(/* id 4, wireType 2 =*/34).string(message.statusMessage);
                 if (message.status != null && Object.hasOwnProperty.call(message, "status"))
@@ -5309,8 +5310,6 @@
                     throw $util.ProtocolError("missing required 'requestId'", { instance: message });
                 if (!message.hasOwnProperty("requestType"))
                     throw $util.ProtocolError("missing required 'requestType'", { instance: message });
-                if (!message.hasOwnProperty("statusCode"))
-                    throw $util.ProtocolError("missing required 'statusCode'", { instance: message });
                 return message;
             };
     
@@ -5392,8 +5391,9 @@
                 case 47:
                     break;
                 }
-                if (!$util.isInteger(message.statusCode))
-                    return "statusCode: integer expected";
+                if (message.statusCode != null && message.hasOwnProperty("statusCode"))
+                    if (!$util.isInteger(message.statusCode))
+                        return "statusCode: integer expected";
                 if (message.statusMessage != null && message.hasOwnProperty("statusMessage"))
                     if (!$util.isString(message.statusMessage))
                         return "statusMessage: string expected";

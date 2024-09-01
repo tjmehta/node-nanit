@@ -102,4 +102,6 @@ typings/
 # TernJS port file
 .tern-port
 dist
+.env.development.local
+.env.development
 .env.test.local

@@ -9,6 +9,7 @@ export enum CameraHardwareType {
 
 export type CameraType = {
   uid: string
+  babyUid: string
   mode: CameraModeType
   connected: boolean
   hardware: CameraHardwareType
@@ -68,6 +69,7 @@ function validateCamera(camera: any): CameraType | null {
 
   const {
     uid,
+    baby_uid,
     mode,
     connected,
     hardware,
@@ -79,6 +81,7 @@ function validateCamera(camera: any): CameraType | null {
 
   return {
     uid,
+    babyUid: baby_uid,
     mode,
     connected,
     hardware,

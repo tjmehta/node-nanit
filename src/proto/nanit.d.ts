@@ -1855,7 +1855,7 @@ export namespace client {
         requestType: client.RequestType;
 
         /** Response statusCode */
-        statusCode: number;
+        statusCode?: (number|null);
 
         /** Response statusMessage */
         statusMessage?: (string|null);

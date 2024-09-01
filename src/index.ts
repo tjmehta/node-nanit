@@ -2,7 +2,6 @@ import ApiClient, {
   ExtendedRequestInit,
   QueryParamsType,
   StatusCodeError,
-  setFetch,
 } from 'simple-api-client'
 import validateBabyCameras, { CameraType } from './validateBabyCameras'
 import validateSession, { SessionType } from './validateSession'
@@ -10,35 +9,112 @@ import validateSession, { SessionType } from './validateSession'
 import BaseError from 'baseerr'
 import memoizeConcurrent from 'memoize-concurrent'
 import validateMfaSession, { MfaSessionType } from './validateMfaSession'
-import validateBabyMessages, { MessageType } from './validateBabyMessage'
-import { WebSocket } from './WebSocketManager'
+import validateBabyMessages, {
+  CameraMessage,
+  CameraMessageType,
+} from './validateBabyMessage'
 import CameraSocketManager from './CameraSocketManager'
+import { Observable } from 'rxjs'
+import timeout from 'abortable-timeout'
+import envVar from 'env-var'
+const { get } = envVar
 
-type OptsType = {
+const NANIT_REQUEST_TIMEOUT = get('NANIT_REQUEST_TIMEOUT')
+  .default(1000 * 20)
+  .asIntPositive()
+const NANIT_EVENTS_MESSAGE_MAX_AGE = get('NANIT_EVENTS_MESSAGE_MAX_AGE')
+  .default(1000 * 60)
+  .asIntPositive()
+
+export type CredentialsType = {
   email: string
   password: string
 }
 
+export type OptsType = {
+  credentials?: CredentialsType | null | undefined
+  session?: SessionType | null | undefined
+}
+
+export enum NanitAuthStatus {
+  NO_CREDENTIALS = 'NO_CREDENTIALS',
+  HAS_CREDENTIALS = 'HAS_CREDENTIALS',
+  MFA_REQUIRED = 'MFA_REQUIRED',
+  AUTHED = 'AUTHED',
+}
+
 export default class Nanit extends ApiClient {
-  auth: {
-    email: string
-    password: string
-  }
+  credentials: CredentialsType | null | undefined
   sessionCache: { value: SessionType; date: Date } | null | undefined
   mfaSessionCache: { value: MfaSessionType; date: Date } | null | undefined
-  cameraSocketManager: CameraSocketManager | null | undefined
+  cameraSocketManagers = new Map<string, CameraSocketManager>()
 
-  constructor(opts: OptsType) {
+  get authStatus() {
+    const auth = this.auth
+
+    return auth.status
+  }
+
+  get auth() {
+    const credentials = this.credentials
+    const mfaSession = this.mfaSessionCache?.value
+    const session = this.sessionCache?.value
+
+    if (session != null) {
+      return {
+        status: NanitAuthStatus.AUTHED,
+        credentials,
+        mfaSession,
+        session,
+      }
+    }
+
+    if (mfaSession != null) {
+      return {
+        status: NanitAuthStatus.MFA_REQUIRED,
+        credentials,
+        mfaSession,
+        session: null,
+      }
+    }
+
+    if (credentials != null) {
+      return {
+        status: NanitAuthStatus.HAS_CREDENTIALS,
+        credentials,
+        mfaSession: null,
+        session: null,
+      }
+    }
+
+    return {
+      status: NanitAuthStatus.NO_CREDENTIALS,
+      credentials: null,
+      mfaSession: null,
+      session: null,
+    }
+  }
+
+  get email() {
+    return this.credentials?.email ?? 'Unknown'
+  }
+
+  get password() {
+    return this.credentials?.password ?? 'Unknown'
+  }
+
+  constructor(opts?: OptsType) {
     super('https://api.nanit.com', async (path, init) => {
       const headers: HeadersInit = {
         ...init?.headers,
+        Accept: '*/*',
         'Accept-Encoding': 'gzip, deflate, br',
         'Accept-Language': 'en-US,en;q=0.9',
         'Content-Type': 'application/json',
-        'nanit-api-version': '2',
-        'User-Agent': 'Nanit/699 CFNetwork/1474 Darwin/23.0.0',
-        'X-Nanit-Service': '3.11.27 (699)',
-        'X-Nanit-Platform': 'iPhone 14 Pro Max',
+        'nanit-api-version': '5',
+        'User-Agent': 'Nanit/767 CFNetwork/1498.700.2 Darwin/23.6.0',
+        'X-Nanit-Service': '3.18.1 (767)',
+        'X-Nanit-Platform': 'iPad Pro (12.9-inch) (3rd generation)',
       }
       if (
         path !== 'login' &&
@@ -71,9 +147,14 @@ export default class Nanit extends ApiClient {
       }
     })
 
-    this.auth = {
-      email: opts.email,
-      password: opts.password,
+    if (opts?.credentials != null) {
+      this.credentials = opts.credentials
+    }
+    if (opts?.session != null) {
+      this.sessionCache = {
+        value: opts.session,
+        date: new Date(),
+      }
     }
   }
 
@@ -89,33 +170,41 @@ export default class Nanit extends ApiClient {
       | null,
     init?: ExtendedRequestInit<QueryType, JsonType> | null,
   ) {
-    let json: JsonType
     try {
       return await super.json<JsonType, QueryType>(path, expectedStatus, init)
     } catch (err) {
-      // if (
-      //   err instanceof StatusCodeError &&
-      //   err.status === 401 &&
-      //   path !== 'login'
-      // ) {
-      //   // unauthorized error on a non-login request, refresh token and retry
-      //   await this.refreshSession()
-      //   return await super.json<JsonType, QueryType>(path, expectedStatus, init)
-      // }
+      if (
+        err instanceof StatusCodeError &&
+        err.status === 401 &&
+        path !== 'login'
+      ) {
+        // unauthorized error on a non-login request, refresh token and retry
+        const { refreshSession } = await import('./server/nanitManager')
+        await refreshSession()
+        return await super.json<JsonType, QueryType>(path, expectedStatus, init)
+      }
 
       throw err
     }
   }
 
+  logout = () => {
+    this.sessionCache = null
+    this.mfaSessionCache = null
+  }
+
   login = memoizeConcurrent(
-    async () => {
+    async (credentials?: CredentialsType | null | undefined) => {
       if (this.sessionCache != null) return this.sessionCache.value
+      if (credentials != null) {
+        this.credentials = credentials
+      }
 
       const json = await this.post<{ email: string; password: string }>(
         'login',
         /^(201|482)$/,
         {
-          json: this.auth,
+          json: this.credentials,
         },
       )
 
@@ -149,6 +238,12 @@ export default class Nanit extends ApiClient {
         'mfa session required (login first)',
       )
 
+      const email = this.credentials?.email
+      BaseError.assert(email != null, 'auth email required (login first)')
+
+      const password = this.credentials?.password
+      BaseError.assert(password != null, 'auth password required (login first)')
+
       const json = await this.post<{
         email: string
         password: string
@@ -156,7 +251,8 @@ export default class Nanit extends ApiClient {
         mfa_token: string
       }>('login', /^201$/, {
         json: {
-          ...this.auth,
+          email,
+          password,
           mfa_code: code,
           mfa_token: this.mfaSessionCache.value.mfaToken,
         },
@@ -211,8 +307,8 @@ export default class Nanit extends ApiClient {
 
   async cameraMessages(
     babyUID: string,
-    { limit }: { limit: number },
-  ): Promise<Array<MessageType>> {
+    { limit, signal }: { limit: number; signal?: AbortSignal },
+  ): Promise<Array<CameraMessage>> {
     const json = await this.json<{}, { limit: string }>(
       `babies/${babyUID}/messages`,
       200,
@@ -220,31 +316,132 @@ export default class Nanit extends ApiClient {
         query: {
           limit: limit.toString(),
         },
+        signal,
       },
     )
 
     return validateBabyMessages(json)
   }
 
-  private getConnectedWebSocket = memoizeConcurrent(
-    async (cameraUID: string): Promise<WebSocket> => {
+  pollCameraMessages(
+    babyUID: string,
+    messageTypes: CameraMessageType[],
+    intervalMs: number,
+  ): Observable<CameraMessage> {
+    return new Observable((subscriber) => {
+      console.log('CameraSocketManager: pollCameraMessages: subscribe')
+      let lastMessage: CameraMessage | null = null
+      let requestState: {
+        promise: Promise<Array<CameraMessage>> | null
+        controller: AbortController | null
+      } = {
+        promise: null,
+        controller: null,
+      }
+
+      const makeRequest = () => {
+        const controller = new AbortController()
+        const promise = Promise.race([
+          this.cameraMessages(babyUID, {
+            limit: 100,
+            signal: controller.signal,
+          }),
+          timeout(NANIT_REQUEST_TIMEOUT, controller.signal).then(() =>
+            Promise.reject(new Error('timeout')),
+          ),
+        ])
+        requestState = {
+          promise,
+          controller,
+        }
+
+        promise
+          .then((messages) => {
+            messages.forEach((message) => {
+              const messageAge = Date.now() - message.time * 1000
+              if (
+                messageTypes.indexOf(message.type) > -1 &&
+                messageAge < NANIT_EVENTS_MESSAGE_MAX_AGE &&
+                (lastMessage == null || message.time > lastMessage.time)
+              ) {
+                console.log(
+                  'CameraSocketManager: pollCameraMessages: message',
+                  message,
+                )
+                lastMessage = message
+                subscriber.next(message)
+              }
+            })
+          })
+          .catch((err) => {
+            subscriber.error(err)
+          })
+          .finally(() => {
+            requestState = {
+              promise: null,
+              controller: null,
+            }
+          })
+      }
+
+      const interval = setInterval(() => {
+        if (requestState.promise != null) {
+          console.log(
+            'CameraSocketManager: pollCameraMessages: skip makeRequest',
+          )
+          return
+        }
+        console.log('CameraSocketManager: pollCameraMessages: makeRequest')
+        makeRequest()
+      }, intervalMs)
+
+      return () => {
+        console.log('CameraSocketManager: pollCameraMessages: unsubscribe')
+        clearInterval(interval)
+        requestState.controller?.abort()
+      }
+    })
+  }
+
+  private getCameraSocketManager = memoizeConcurrent(
+    async (cameraUID: string): Promise<CameraSocketManager> => {
       BaseError.assert(
         this.sessionCache != null,
         'session required (login first)',
       )
+      let cameraSocketManager = this.cameraSocketManagers.get(cameraUID)
 
-      if (this.cameraSocketManager == null) {
-        this.cameraSocketManager = new CameraSocketManager(cameraUID, {
-          headers: {
-            Authorization: `token ${
-              this.sessionCache.value.token ??
-              this.sessionCache.value.accessToken
-            }`,
+      if (cameraSocketManager == null) {
+        cameraSocketManager = new CameraSocketManager(cameraUID, {
+          ws: {
+            headers: {
+              Authorization: `Bearer ${
+                this.sessionCache.value.token ??
+                this.sessionCache.value.accessToken
+              }`,
+            },
           },
+          requestTimeoutMs: NANIT_REQUEST_TIMEOUT,
         })
+        this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
       }
+      await cameraSocketManager.start()
 
-      return this.cameraSocketManager.getConnectedWebSocket()
+      return cameraSocketManager
     },
   )
+
+  async requestStreaming(cameraUID: string, rtmpUrl: string): Promise<{}> {
+    const socket = await this.getCameraSocketManager(cameraUID)
+    const payload = await socket.requestStreaming(rtmpUrl)
+
+    return payload
+  }
+
+  async stopStreaming(cameraUID: string, rtmpUrl: string): Promise<{}> {
+    const socket = await this.getCameraSocketManager(cameraUID)
+    const payload = await socket.stopStreaming(rtmpUrl)
+
+    return payload
+  }
 }
