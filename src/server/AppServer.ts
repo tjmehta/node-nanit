@@ -17,6 +17,7 @@ import { CameraMessage, CameraMessageType } from '../validateBabyMessage'
 import { Subscription } from 'rxjs'
 import mqtt from 'async-mqtt'
 import { CameraType } from '../validateBabyCameras'
+import { NanitCameraStreamManager } from './NanitCameraStreamManager'
 const { get } = envVar
 
 const HTTP_PORT = get('HTTP_PORT').default(3000).asPortNumber()
@@ -42,24 +43,9 @@ function mqttTopic(cameraUid: string): string {
   return `${MQTT_PREFIX}/camera/${cameraUid}/events`
 }
 
-enum RtmpPublisherStatus {
-  NONE = 'NONE',
-  REQUESTED = 'REQUESTED',
-  PUBLISHING = 'PUBLISHING',
-  // below would be deleted
-  // DONE = 'DONE',
-  // ERROR = 'ERROR',
-}
-
-type RtmpPublisher = {
-  status: RtmpPublisherStatus
-  cameraUid: string
-  rtmpUrl: string
-  subscribers: string[]
-}
-
 class AppServer extends AbstractStartable {
-  private rtmpPublishers = new Map<string, RtmpPublisher>()
+  private cameraStreamSubscriberIds = new Set<string>()
+  private cameraStreamManagers = new Map<string, NanitCameraStreamManager>()
   private cameraMessageSubscriptions = new Map<string, Subscription>()
   private nanitManager = nanitManager
   private mqtt: mqtt.AsyncMqttClient | null = null
@@ -90,16 +76,15 @@ class AppServer extends AbstractStartable {
   async _stop(opts?: StopOptsType): Promise<void> {
     console.log('stopping app server')
     this.stopPollingCameraMessages()
-    await this.mqtt?.end()
     await new Promise<void>((resolve, reject) =>
       this.httpServer?.close((err) => {
         if (err) return reject(err)
         resolve()
       }),
     )
-    this.nms?.stop()
+    await this.mqtt?.end()
     await this.stopStreamingAll()
-    this.rtmpPublishers.clear()
+    this.nms?.stop()
   }
 
   private async startHttpServer() {
@@ -277,89 +262,81 @@ class AppServer extends AbstractStartable {
     })
 
     nms.on('prePublish', (id, path, args) => {
-      console.log(`[RTMP] prePublish ${path}`, { args })
-      // Here you can implement logic similar to your Go version's publisher handling
+      console.log(`[RTMP] prePublish ${path}`, { id })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
-      const rtmpUrl = cameraRtmpUrl(cameraUid)
-      const state = this.rtmpPublishers.get(cameraUid)
 
-      if (state != null) {
-        this.rtmpPublishers.set(cameraUid, {
-          ...state,
-          status: RtmpPublisherStatus.PUBLISHING,
-        })
-      } else {
-        this.rtmpPublishers.set(cameraUid, {
-          status: RtmpPublisherStatus.PUBLISHING,
-          cameraUid,
-          rtmpUrl,
-          subscribers: [id],
-        })
-      }
+      const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
+      cameraStreamManager?.publish()
     })
 
     nms.on('donePublish', (id, path, args) => {
-      console.log(`[RTMP] donePublish ${path}`, { args })
+      console.log(`[RTMP] donePublish ${path}`, { id })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
-      // Handle publisher disconnection
-      this.rtmpPublishers.delete(cameraUid)
+
+      const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
+      cameraStreamManager?.donePublish()
     })
 
     nms.on('prePlay', async (id, path, args) => {
-      console.log(`[RTMP] prePlay ${path}`, { args })
+      console.log(`[RTMP] prePlay ${path}`, { id })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
-      const rtmpUrl = cameraRtmpUrl(cameraUid)
-      const state = this.rtmpPublishers.get(cameraUid)
 
-      if (state != null) {
-        // stream already requested
-        state.subscribers.push(id)
-        return
-      }
+      let cameraStreamManager =
+        this.cameraStreamManagers.get(cameraUid) ??
+        new NanitCameraStreamManager(this.nanitManager, cameraUid)
 
-      // stream not requested yet
-      this.rtmpPublishers.set(cameraUid, {
-        status: RtmpPublisherStatus.NONE,
-        cameraUid,
-        rtmpUrl,
-        subscribers: [id],
-      })
+      this.cameraStreamManagers.set(cameraUid, cameraStreamManager)
 
-      /*
-       * request streaming
-       */
-      try {
-        await this.requestStreaming(id, path, cameraUid)
-      } catch (err) {
-        console.log(`[RTMP] prePlay ${path}: error`, { err })
-        this.rtmpPublishers.delete(cameraUid)
-        throw err
-      }
+      // request streaming
+      this.cameraStreamSubscriberIds.add(id)
+      cameraStreamManager
+        .forceStart()
+        .then(() => {
+          console.log('[RTMP] prePlay: forceStart: success', {
+            cameraUid,
+          })
+        })
+        .catch((err) => {
+          console.log('[RTMP] prePlay: forceStart: error', {
+            cameraUid,
+            err,
+          })
+        })
     })
 
     nms.on('donePlay', async (id, path, args) => {
-      console.log(`[RTMP] donePlay ${path}`, { args })
+      console.log(`[RTMP] donePlay ${path}`, { id })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
-      const rtmpUrl = cameraRtmpUrl(cameraUid)
-      // Handle subscriber disconnection
 
-      const state = this.rtmpPublishers.get(cameraUid)
+      const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
-      if (state == null) return
+      if (cameraStreamManager == null) {
+        console.log('[RTMP] donePlay: cameraStreamManager not found', {
+          cameraUid,
+        })
+        return
+      }
 
-      const subscribers = state.subscribers.filter((subId) => subId !== id)
-      this.rtmpPublishers.set(cameraUid, {
-        ...state,
-        subscribers,
-      })
-
-      if (subscribers.length === 0) {
-        await this.nanitManager.get().stopStreaming(cameraUid, rtmpUrl)
-        this.rtmpPublishers.delete(cameraUid)
+      // stop streaming after some delay, not a rush in case another client subscribes..
+      this.cameraStreamSubscriberIds.delete(id)
+      if (this.cameraStreamSubscriberIds.size === 0) {
+        cameraStreamManager
+          .delayedStop()
+          .then(() => {
+            console.log('[RTMP] donePlay: delayedStop: success', {
+              cameraUid,
+            })
+          })
+          .catch((err) => {
+            console.log('[RTMP] donePlay: delayedStop: error', {
+              cameraUid,
+              err,
+            })
+          })
       }
     })
 
@@ -436,63 +413,14 @@ class AppServer extends AbstractStartable {
     this.cameraMessageSubscriptions.forEach((subscription) =>
       subscription.unsubscribe(),
     )
+    this.cameraMessageSubscriptions.clear()
   }
 
   private async stopStreamingAll() {
-    const cameraUids = Array.from(this.rtmpPublishers.values()).map(
-      (v) => v.cameraUid,
-    )
-
-    await Promise.all(
-      cameraUids.map((cameraUid) => {
-        const state = this.rtmpPublishers.get(cameraUid)
-        if (state == null) return
-        return this.nanitManager
-          .get()
-          .stopStreaming(state.cameraUid, state.rtmpUrl)
-      }),
-    )
-  }
-
-  private async requestStreaming(
-    subId: string,
-    path: string,
-    cameraUid: string,
-  ) {
-    const nanit = this.nanitManager.get()
-    const rtmpUrl = cameraRtmpUrl(cameraUid)
-
-    assert(nanit.authStatus === NanitAuthStatus.AUTHED, 'invalid auth state')
-
-    try {
-      let cameras = await nanit.getCameras()
-      const camera = cameras.find((camera) => camera.uid === cameraUid)
-
-      console.log(`[RTMP] prePlay ${path}: camera found?`, { camera })
-      assert(camera != null, `camera not found: ${cameraUid}`)
-
-      console.log(`[RTMP] prePlay ${path}: requestStreaming`, { rtmpUrl })
-      await nanit.requestStreaming(camera.uid, rtmpUrl)
-      const state = this.rtmpPublishers.get(cameraUid)
-      if (state != null) {
-        state.status = RtmpPublisherStatus.REQUESTED
-      } else {
-        this.rtmpPublishers.set(cameraUid, {
-          status: RtmpPublisherStatus.REQUESTED,
-          cameraUid,
-          rtmpUrl,
-          subscribers: [subId],
-        })
-      }
-
-      console.log(`[RTMP] prePlay ${path}: success`)
-    } catch (err) {
-      console.log(`[RTMP] prePlay ${path}: error`, { err })
-      if (err instanceof StatusCodeError && err.status === 401) {
-        this.nanitManager.refreshSession()
-      }
-      throw err
-    }
+    this.cameraStreamManagers.forEach((cameraStreamManager) => {
+      cameraStreamManager.stopForever()
+    })
+    this.cameraStreamManagers.clear()
   }
 }
 

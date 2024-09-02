@@ -2,7 +2,6 @@ import { writeFile, readFile, unlink } from 'fs/promises'
 import { mkdirSync, readFileSync } from 'fs'
 import path from 'path'
 import Nanit, { CredentialsType, NanitAuthStatus } from '../index'
-import { MfaSessionType } from '../validateMfaSession'
 import assert from 'assert'
 import { StatusCodeError } from 'simple-api-client'
 

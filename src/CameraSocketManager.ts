@@ -81,7 +81,7 @@ export default class CameraSocketManager extends WebSocketManager {
     ])
   }
 
-  async requestStreaming(rtmpUrl: string): Promise<{}> {
+  async startStreaming(rtmpUrl: string): Promise<{}> {
     console.log('CameraSocketManager: requestStreaming: rtmpUrl', rtmpUrl)
     const request = proto.Request.create({
       id: this.generateRequestId(),

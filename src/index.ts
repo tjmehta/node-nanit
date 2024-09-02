@@ -446,9 +446,9 @@ export default class Nanit extends ApiClient {
     },
   )
 
-  async requestStreaming(cameraUID: string, rtmpUrl: string): Promise<{}> {
+  async startStreaming(cameraUID: string, rtmpUrl: string): Promise<{}> {
     const socket = await this.getCameraSocketManager(cameraUID)
-    const payload = await socket.requestStreaming(rtmpUrl)
+    const payload = await socket.startStreaming(rtmpUrl)
 
     return payload
   }
