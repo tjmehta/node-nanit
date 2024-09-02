@@ -293,6 +293,8 @@ export default class Nanit extends ApiClient {
         date: new Date(),
       }
 
+      await this.resetCameraSocketManagers()
+
       return this.sessionCache.value
     },
     {
@@ -418,6 +420,14 @@ export default class Nanit extends ApiClient {
     })
   }
 
+  private resetCameraSocketManagers = async () => {
+    await Promise.all(
+      [...this.cameraSocketManagers.keys()].map((cameraUID) =>
+        this.resetCameraSocketManager(cameraUID),
+      ),
+    )
+  }
+
   private getCameraSocketManager = memoizeConcurrent(
     async (cameraUID: string): Promise<CameraSocketManager> => {
       BaseError.assert(
@@ -440,6 +450,42 @@ export default class Nanit extends ApiClient {
         })
         this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
       }
+      await cameraSocketManager.start()
+
+      return cameraSocketManager
+    },
+  )
+
+  private resetCameraSocketManager = memoizeConcurrent(
+    async (cameraUID: string): Promise<CameraSocketManager> => {
+      BaseError.assert(
+        this.sessionCache != null,
+        'session required (login first)',
+      )
+      let cameraSocketManager = this.cameraSocketManagers.get(cameraUID)
+
+      if (cameraSocketManager != null) {
+        await cameraSocketManager.stop().catch((err) => {
+          console.warn(
+            'CameraSocketManager: resetCameraSocketManager: stop: error',
+            { cameraUID, err },
+          )
+        })
+        this.cameraSocketManagers.delete(cameraUID)
+      }
+
+      cameraSocketManager = new CameraSocketManager(cameraUID, {
+        ws: {
+          headers: {
+            Authorization: `Bearer ${
+              this.sessionCache.value.token ??
+              this.sessionCache.value.accessToken
+            }`,
+          },
+        },
+        requestTimeoutMs: NANIT_REQUEST_TIMEOUT,
+      })
+      this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
       await cameraSocketManager.start()
 
       return cameraSocketManager

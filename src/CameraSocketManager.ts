@@ -12,6 +12,7 @@ type CameraSocketManagerOpts = {
 export default class CameraSocketManager extends WebSocketManager {
   protected lastRequestId = 0
   private responseEmitter: EventEmitter = new EventEmitter()
+  activeStreamUrls = new Set<string>()
   cameraUID: string
   requestTimeoutMs: number
 
@@ -37,6 +38,9 @@ export default class CameraSocketManager extends WebSocketManager {
   }
 
   protected async _stop(): Promise<void> {
+    await Promise.all(
+      [...this.activeStreamUrls].map((rtmpUrl) => this.stopStreaming(rtmpUrl)),
+    )
     this.ws?.removeAllListeners()
     this.responseEmitter.removeAllListeners()
 
@@ -96,8 +100,7 @@ export default class CameraSocketManager extends WebSocketManager {
 
     const res = await this.sendRequest(request)
     console.log('CameraSocketManager: requestStreaming: res', res)
-
-    // res.statusCode
+    this.activeStreamUrls.add(rtmpUrl)
 
     const payload = res.toJSON()
 
@@ -116,6 +119,11 @@ export default class CameraSocketManager extends WebSocketManager {
       }),
     })
 
+    if (!this.activeStreamUrls.has(rtmpUrl)) {
+      console.warn('CameraSocketManager: stopStreaming: rtmpUrl not active')
+      // fall through and stop anyway
+    }
+    this.activeStreamUrls.delete(rtmpUrl)
     const res = await this.sendRequest(request)
     console.log('CameraSocketManager: stopStreaming: res', res)
 

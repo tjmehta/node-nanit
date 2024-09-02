@@ -3,17 +3,25 @@ import WS from 'ws'
 import Deferred from 'p-defer'
 import BaseError from 'baseerr'
 import memoizeConcurrent from 'memoize-concurrent'
+import { StatusCodeError as SimpleApiClientStatusCodeError } from 'simple-api-client'
 
 export type WebSocketType = WS
 export type WebSocketOptions = WS.ClientOptions
+export const StatusCodeError = SimpleApiClientStatusCodeError
 
 export default class WebSocketManager extends AbstractStartable {
   private wsArgs: ConstructorParameters<typeof WS>
   ws: WebSocketType | undefined | null
+  headers: Headers
 
   constructor(...args: ConstructorParameters<typeof WS>) {
     super()
     this.wsArgs = args
+    const headersParentArg = args.find(
+      (arg) => typeof arg == 'object' && arg != null && 'headers' in arg,
+    )
+    // @ts-ignore
+    this.headers = headersParentArg?.headers ?? {}
   }
 
   protected async _start(opts?: StartOptsType): Promise<void> {
@@ -31,6 +39,21 @@ export default class WebSocketManager extends AbstractStartable {
     this.ws = new WS(...this.wsArgs)
     this.ws.on('error', (err: unknown) => {
       console.error('WS: error', err)
+      // @ts-ignore
+      if (/Unexpected server response: 401/.test(err.message)) {
+        const statusErr = StatusCodeError.wrap(
+          err as Error,
+          'unexpected status',
+          {
+            expectedStatus: 200,
+            status: 401,
+            headers: this.headers ?? {},
+            path: this.wsArgs[0].toString(),
+          },
+        )
+        deferred.reject(statusErr)
+        return
+      }
       deferred.reject(err)
     })
     this.ws.on('close', () => {
