@@ -2,7 +2,8 @@ FROM node:lts
 
 ADD . /app
 
-RUN cd /app && npm install
-RUN cd /app && npm run build
+WORKDIR /app
+RUN npm install
+RUN npm run build
 
-CMD ["node", "/app/dist/esm/app.mjs"]
+CMD ["node", "dist/esm/app.mjs"]
