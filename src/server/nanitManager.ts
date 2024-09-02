@@ -54,11 +54,16 @@ class NanitAuthCache {
 
   getSync(key: NanitAuthCacheKeys) {
     try {
-      const data = readFileSync(this.getPath(key), 'utf8')
-      console.log('[NanitAuthCache getSync]', key, data)
+      const path = this.getPath(key)
+      console.log('[NanitAuthCache getSync] path', key, path)
+      const data = readFileSync(path, 'utf8')
+      console.log('[NanitAuthCache getSync] data', key, data)
       return JSON.parse(data)
     } catch (e: any) {
-      if (e.code === 'ENOENT') return null
+      if (e.code === 'ENOENT') {
+        console.warn('[NanitAuthCache getSync] not found', key, e)
+        return null
+      }
       throw e
     }
   }
