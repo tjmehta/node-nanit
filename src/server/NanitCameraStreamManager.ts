@@ -20,6 +20,8 @@ export class NanitCameraStreamManager extends AbstractStartable {
   private donePublishingDeferred: DeferredPromise<void> | null = null
   private delayedStopController: AbortController | null = null
   private stoppedForever: boolean = false
+  private cameraStreamSubscriberIds = new Set<string>()
+  private cameraStreamSubscriberTimeoutIds = new Map<string, NodeJS.Timeout>()
 
   static rtmpUrl(cameraUid: string) {
     return `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${cameraUid}`
@@ -31,10 +33,57 @@ export class NanitCameraStreamManager extends AbstractStartable {
     this.cameraUid = cameraUid
   }
 
+  rtmpUrl() {
+    return NanitCameraStreamManager.rtmpUrl(this.cameraUid)
+  }
+
+  async addSubscriber(subscriberId: string) {
+    const prevSize = this.cameraStreamSubscriberIds.size
+    this.cameraStreamSubscriberIds.add(subscriberId)
+    const currSize = this.cameraStreamSubscriberIds.size
+
+    if (currSize > prevSize) {
+      this.cancelDelayedStop('addSubscriber')
+      return this.forceStart()
+    }
+  }
+
+  async deleteSubscriber(subscriberId: string) {
+    this.cameraStreamSubscriberIds.delete(subscriberId)
+
+    if (this.cameraStreamSubscriberIds.size === 0) {
+      return this.delayedStop()
+    }
+  }
+
   publish() {
-    if (!this.publishingDeferred) return
-    this.publishingDeferred.resolve()
-    this.publishingDeferred = null
+    if (this.publishingDeferred) {
+      console.log('[StreamManager] publish: resolve', {
+        cameraUid: this.cameraUid,
+      })
+      this.publishingDeferred.resolve()
+      this.publishingDeferred = null
+      return
+    }
+
+    // if already "stopped", dont care
+    // ("stopping" should technically have donePublishingDeferred above)
+    if (this.state === 'STOPPED' || this.state === 'STOPPING') {
+      console.warn('[StreamManager] publish: unexpected while stopped', {
+        cameraUid: this.cameraUid,
+        state: this.state,
+      })
+      this.forceStop().catch((err) => {
+        console.error(
+          '[StreamManager] publish: unexpected while stopped: force stop error',
+          {
+            err,
+            cameraUid: this.cameraUid,
+          },
+        )
+      })
+      return
+    }
   }
 
   donePublish() {
@@ -42,60 +91,80 @@ export class NanitCameraStreamManager extends AbstractStartable {
 
     if (this.donePublishingDeferred) {
       // done publishing as expected, after stop was calleds
+      console.log('[StreamManager] donePublish: resolve', {
+        cameraUid: this.cameraUid,
+      })
       this.donePublishingDeferred.resolve()
       this.donePublishingDeferred = null
       return
     }
 
-    // finished publishing unexpectedly
-    console.warn('[StreamManager]unexpected done publish')
-    this.donePublishingDeferred = createDeferredPromise()
-    this.donePublishingDeferred.resolve()
-    this.forceStop().catch((err) => {
-      console.error(
-        'stream stop cleanup failed after unexpected done publish',
-        err,
-      )
-    })
-    this.forceStart()
+    // if already "stopped", dont care
+    // ("stopping" should technically have donePublishingDeferred above)
+    if (this.state === 'STOPPED' || this.state === 'STOPPING') {
+      console.warn('[StreamManager] donePublish: unexpected while stopped', {
+        cameraUid: this.cameraUid,
+        state: this.state,
+      })
+      return
+    }
+
+    // finished publishing unexpectedly while streaming
+    // this.state === 'STARTED' || this.state === 'STARTING'
+    console.warn('[StreamManager] donePublish: unexpected while streaming')
+    this.forceStop()
+      .catch((err) => {
+        console.error(
+          '[StreamManager] donePublish: unexpected: force stop error',
+          { err, cameraUid: this.cameraUid },
+        )
+      })
       .then(() => {
-        console.error('resume stream success after unexpected done publish')
+        return this.forceStart()
+      })
+      .then(() => {
+        console.warn(
+          '[StreamManager] donePublish: unexpected: restart success',
+          {
+            cameraUid: this.cameraUid,
+          },
+        )
       })
       .catch((err) => {
-        console.error('resume stream failed after unexpected done publish', err)
+        console.error(
+          '[StreamManager] donePublish: unexpected: restart error',
+          { err, cameraUid: this.cameraUid },
+        )
       })
-    return
   }
 
-  forceStart = memoizeConcurrent(
+  stopForever = memoizeConcurrent(
     async () => {
-      assert(!this.stoppedForever, 'force stopped, cannot be restarted')
-      if (this.delayedStopController) {
-        // cancel delayed stop
-        this.delayedStopController.abort()
-        this.delayedStopController = null
-      }
-
-      if (this.state === 'STOPPING') {
-        // if force start and stopping, wait for stop to complete, and then start
-        await this.stop()
-      }
-
-      return this.start()
+      console.log('[StreamManager] stopForever', { cameraUid: this.cameraUid })
+      this.stoppedForever = true
+      return this.forceStop()
     },
     {
       cacheKey: () => 'all',
     },
   )
 
-  delayedStop = memoizeConcurrent(
+  private delayedStop = memoizeConcurrent(
     async () => {
+      if (this.delayedStopController) {
+        console.log('[StreamManager] delayedStop: already scheduled', {
+          cameraUid: this.cameraUid,
+        })
+        return
+      }
+
       this.delayedStopController = new AbortController()
-      console.log('[StreamManager] delayed stop scheduled', {
+      console.log('[StreamManager] delayedStop: scheduled', {
         cameraUid: this.cameraUid,
       })
       await timeout(NANIT_CAMERA_STOP_DELAY, this.delayedStopController.signal)
-      console.log('[StreamManager] delayed stop now', {
+      this.delayedStopController = null
+      console.log('[StreamManager] delayedStop: stop now', {
         cameraUid: this.cameraUid,
       })
       return this.stop()
@@ -105,40 +174,78 @@ export class NanitCameraStreamManager extends AbstractStartable {
     },
   )
 
-  forceStop = memoizeConcurrent(
+  private cancelDelayedStop(logKey?: string) {
+    if (this.delayedStopController) {
+      console.log(
+        `[StreamManager] ${logKey ?? 'cancelDelayedStop'}: cancel delayed stop`,
+        {
+          cameraUid: this.cameraUid,
+        },
+      )
+      this.delayedStopController.abort()
+      this.delayedStopController = null
+    }
+  }
+
+  private forceStart = memoizeConcurrent(
     async () => {
-      console.log('[StreamManager] force stop', { cameraUid: this.cameraUid })
-      return this.stop({ force: true })
+      assert(!this.stoppedForever, 'stopped forever, cannot be restarted')
+
+      console.log('[StreamManager] forceStart', { cameraUid: this.cameraUid })
+
+      if (this.state === 'STOPPING') {
+        console.log('[StreamManager] forceStart: wait for stop to complete', {
+          cameraUid: this.cameraUid,
+        })
+        // if force start and stopping, wait for stop to complete, and then start
+        await this.stop()
+      }
+
+      console.log('[StreamManager] forceStart: start', {
+        cameraUid: this.cameraUid,
+      })
+      return this.start()
     },
     {
       cacheKey: () => 'all',
     },
   )
 
-  stopForever = memoizeConcurrent(
+  private forceStop = memoizeConcurrent(
     async () => {
-      console.log('[StreamManager] stop forever', { cameraUid: this.cameraUid })
-      this.stoppedForever = true
+      console.log('[StreamManager] forceStop', { cameraUid: this.cameraUid })
+
       if (this.state === 'STARTING' && this.publishingDeferred) {
+        console.log(
+          '[StreamManager] forceStop: starting, dont wait for publishing to begin',
+          {
+            cameraUid: this.cameraUid,
+          },
+        )
         this.publishingDeferred.resolve()
         this.publishingDeferred = null
         return this.stop({ force: true })
       }
+
       if (this.state === 'STOPPING' && this.donePublishingDeferred) {
+        console.log(
+          '[StreamManager] forceStop: stopping, dont wait for publishing to finish',
+          {
+            cameraUid: this.cameraUid,
+          },
+        )
+        const stopPromise = this.stop({ force: true })
         this.donePublishingDeferred.resolve()
         this.donePublishingDeferred = null
-        return
+        return stopPromise
       }
+
       return this.stop({ force: true })
     },
     {
       cacheKey: () => 'all',
     },
   )
-
-  rtmpUrl() {
-    return NanitCameraStreamManager.rtmpUrl(this.cameraUid)
-  }
 
   async _start() {
     const nanit = this.nanitManager.get()
@@ -150,26 +257,17 @@ export class NanitCameraStreamManager extends AbstractStartable {
   }
 
   async _stop({ force }: { force?: boolean }) {
-    if (this.delayedStopController) {
-      // cancel delayed stop
-      this.delayedStopController.abort()
-      this.delayedStopController = null
-      // ...and stop immediately
-    }
+    this.cancelDelayedStop('stop')
 
     const nanit = this.nanitManager.get()
     const rtmpUrl = NanitCameraStreamManager.rtmpUrl(this.cameraUid)
 
-    if (this.donePublishingDeferred) {
-      // ended early
-      this.donePublishingDeferred = null
-      await nanit.stopStreaming(this.cameraUid, rtmpUrl)
-      return
-    }
+    if (!force) this.donePublishingDeferred = createDeferredPromise()
 
-    this.donePublishingDeferred = createDeferredPromise()
     await nanit.stopStreaming(this.cameraUid, rtmpUrl)
-    if (force) return // dont wait for done publishing
-    await this.donePublishingDeferred.promise
+
+    if (this.donePublishingDeferred) {
+      await this.donePublishingDeferred.promise
+    }
   }
 }

@@ -123,19 +123,19 @@ export default class Nanit extends ApiClient {
         this.sessionCache != null
       ) {
         const session = this.sessionCache.value
-        console.log('use session', { path, session })
+        console.log('request: use session', {
+          refreshToken: session.refreshToken,
+        })
         Object.assign(headers, {
           Authorization: `token ${session.token ?? session.accessToken}`,
         })
       }
 
-      console.log('init', path, {
-        ...init,
-        headers,
-        backoff: {
-          statusCodes: /^5..$/,
-          timeouts: [100, 200],
-        },
+      console.log('request: init', path, {
+        query: init?.query,
+        json: init?.json,
+        // @ts-ignore
+        auth: headers.Authorization ?? headers.authorization ?? null,
       })
 
       return {

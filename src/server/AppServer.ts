@@ -12,7 +12,6 @@ import { Server } from 'http'
 import nanitManager, { NanitManager } from './nanitManager'
 import assert from 'assert'
 import envVar from 'env-var'
-import { StatusCodeError } from 'simple-api-client'
 import { CameraMessage, CameraMessageType } from '../validateBabyMessage'
 import { Subscription } from 'rxjs'
 import mqtt from 'async-mqtt'
@@ -44,7 +43,6 @@ function mqttTopic(cameraUid: string): string {
 }
 
 class AppServer extends AbstractStartable {
-  private cameraStreamSubscriberIds = new Set<string>()
   private cameraStreamManagers = new Map<string, NanitCameraStreamManager>()
   private cameraMessageSubscriptions = new Map<string, Subscription>()
   private nanitManager = nanitManager
@@ -267,7 +265,13 @@ class AppServer extends AbstractStartable {
       assert(cameraUid, 'cameraUid required')
 
       const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
-      cameraStreamManager?.publish()
+
+      if (cameraStreamManager == null) {
+        console.warn(`[RTMP] prePublish ${path}: unexpected!`, { id })
+        return
+      }
+
+      cameraStreamManager.publish()
     })
 
     nms.on('donePublish', (id, path, args) => {
@@ -276,7 +280,13 @@ class AppServer extends AbstractStartable {
       assert(cameraUid, 'cameraUid required')
 
       const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
-      cameraStreamManager?.donePublish()
+
+      if (cameraStreamManager == null) {
+        console.warn(`[RTMP] donePublish ${path}: unexpected!`, { id })
+        return
+      }
+
+      cameraStreamManager.donePublish()
     })
 
     nms.on('prePlay', async (id, path, args) => {
@@ -290,17 +300,16 @@ class AppServer extends AbstractStartable {
 
       this.cameraStreamManagers.set(cameraUid, cameraStreamManager)
 
-      // request streaming
-      this.cameraStreamSubscriberIds.add(id)
+      // add subscriber, and start streaming if not already streaming
       cameraStreamManager
-        .forceStart()
+        .addSubscriber(id)
         .then(() => {
-          console.log('[RTMP] prePlay: forceStart: success', {
+          console.log('[RTMP] prePlay: addSubscriber: success', {
             cameraUid,
           })
         })
         .catch((err) => {
-          console.log('[RTMP] prePlay: forceStart: error', {
+          console.log('[RTMP] prePlay: addSubscriber: error', {
             cameraUid,
             err,
           })
@@ -321,23 +330,20 @@ class AppServer extends AbstractStartable {
         return
       }
 
-      // stop streaming after some delay, not a rush in case another client subscribes..
-      this.cameraStreamSubscriberIds.delete(id)
-      if (this.cameraStreamSubscriberIds.size === 0) {
-        cameraStreamManager
-          .delayedStop()
-          .then(() => {
-            console.log('[RTMP] donePlay: delayedStop: success', {
-              cameraUid,
-            })
+      // remove subscriber, and possibly stop the stream
+      cameraStreamManager
+        .deleteSubscriber(id)
+        .then(() => {
+          console.log('[RTMP] prePlay: deleteSubscriber: success', {
+            cameraUid,
           })
-          .catch((err) => {
-            console.log('[RTMP] donePlay: delayedStop: error', {
-              cameraUid,
-              err,
-            })
+        })
+        .catch((err) => {
+          console.log('[RTMP] prePlay: deleteSubscriber: error', {
+            cameraUid,
+            err,
           })
-      }
+        })
     })
 
     this.nms = nms
