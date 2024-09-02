@@ -256,7 +256,7 @@ export class NanitCameraStreamManager extends AbstractStartable {
     await this.publishingDeferred.promise
   }
 
-  async _stop({ force }: { force?: boolean }) {
+  async _stop({ force }: { force?: boolean } = { force: false }) {
     this.cancelDelayedStop('stop')
 
     const nanit = this.nanitManager.get()
