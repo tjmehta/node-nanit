@@ -263,8 +263,14 @@ export class NanitCameraStreamManager extends AbstractStartable {
     const rtmpUrl = NanitCameraStreamManager.rtmpUrl(this.cameraUid)
 
     if (!force) this.donePublishingDeferred = createDeferredPromise()
-
-    await nanit.stopStreaming(this.cameraUid, rtmpUrl)
+    try {
+      await nanit.stopStreaming(this.cameraUid, rtmpUrl)
+    } catch (err) {
+      console.warn('[StreamManager] _stop: stopStreaming error', {
+        err,
+        cameraUid: this.cameraUid,
+      })
+    }
 
     if (this.donePublishingDeferred) {
       await this.donePublishingDeferred.promise
