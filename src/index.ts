@@ -17,6 +17,7 @@ import CameraSocketManager from './CameraSocketManager'
 import { Observable } from 'rxjs'
 import timeout from 'abortable-timeout'
 import envVar from 'env-var'
+import { StatusCodeError as WebSockerStatusCodeError } from './WebSocketManager'
 const { get } = envVar
 
 const NANIT_REQUEST_TIMEOUT = get('NANIT_REQUEST_TIMEOUT')
@@ -182,6 +183,7 @@ export default class Nanit extends ApiClient {
         // unauthorized error on a non-login request, refresh token and retry
         const { refreshSession } = await import('./server/nanitManager')
         await refreshSession()
+
         return await super.json<JsonType, QueryType>(path, expectedStatus, init)
       }
 
@@ -450,7 +452,19 @@ export default class Nanit extends ApiClient {
         })
         this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
       }
-      await cameraSocketManager.start()
+      try {
+        await cameraSocketManager.start()
+      } catch (err) {
+        if (err instanceof WebSockerStatusCodeError && err.status === 401) {
+          console.warn(
+            'CameraSocketManager: getCameraSocketManager: start: error',
+            { cameraUID, err },
+          )
+          await this.refreshSession()
+          return this.resetCameraSocketManager(cameraUID)
+        }
+        throw err
+      }
 
       return cameraSocketManager
     },
