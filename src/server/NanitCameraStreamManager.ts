@@ -21,7 +21,6 @@ export class NanitCameraStreamManager extends AbstractStartable {
   private delayedStopController: AbortController | null = null
   private stoppedForever: boolean = false
   private cameraStreamSubscriberIds = new Set<string>()
-  private cameraStreamSubscriberTimeoutIds = new Map<string, NodeJS.Timeout>()
 
   static rtmpUrl(cameraUid: string) {
     return `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${cameraUid}`
@@ -264,6 +263,7 @@ export class NanitCameraStreamManager extends AbstractStartable {
 
     if (!force) this.donePublishingDeferred = createDeferredPromise()
     try {
+      this.cameraStreamSubscriberIds.clear()
       await nanit.stopStreaming(this.cameraUid, rtmpUrl)
     } catch (err) {
       console.warn('[StreamManager] _stop: stopStreaming error', {
