@@ -74,7 +74,7 @@ export default class WebSocketManager extends AbstractStartable {
       console.log('WS: stop: already stopped')
       return
     }
-    if (this.ws.CLOSED || this.ws.CLOSING) {
+    if (this.ws.readyState === WS.CLOSED || this.ws.readyState === WS.CLOSING) {
       this.ws = null
       return
     }
