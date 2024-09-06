@@ -36,8 +36,9 @@ export default class WebSocketManager extends AbstractStartable {
 
     // connect ws
     const deferred = Deferred()
+
     this.ws = new WS(...this.wsArgs)
-    this.ws.on('error', (err: unknown) => {
+    this.ws.once('error', (err: unknown) => {
       console.error('WS: error', err)
       // @ts-ignore
       if (/Unexpected server response: 401/.test(err.message)) {
@@ -56,12 +57,12 @@ export default class WebSocketManager extends AbstractStartable {
       }
       deferred.reject(err)
     })
-    this.ws.on('close', () => {
+    this.ws.once('close', () => {
       console.log('WS: close')
       // cleanup ws
       this.stop()
     })
-    this.ws.on('open', () => {
+    this.ws.once('open', () => {
       console.log('WS: open')
       deferred.resolve()
     })
@@ -81,10 +82,20 @@ export default class WebSocketManager extends AbstractStartable {
     console.log('WS: stop')
 
     const deferred = Deferred()
-    this.ws.on('close', () => {
+
+    this.ws.removeAllListeners('open')
+    this.ws.removeAllListeners('close')
+    this.ws.removeAllListeners('error')
+    setTimeout(() => {
+      console.warn('WS: stop: timeout', { readyState: this.ws?.readyState })
+      if (this.ws?.readyState === WS.CLOSING) {
+        deferred.reject(new Error('WS: stop: timeout'))
+      }
+      deferred.resolve()
+    }, 60 * 1000)
+    this.ws.once('close', () => {
       deferred.resolve()
     })
-
     this.ws.close()
 
     await deferred.promise
