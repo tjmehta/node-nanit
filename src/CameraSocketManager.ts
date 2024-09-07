@@ -89,24 +89,16 @@ export default class CameraSocketManager extends WebSocketManager {
     if (autoConnect) {
       ws = await this.getConnectedWebSocketAndHandleMessage()
     } else {
-      BaseError.assert(this.ws != null, 'ws not connected', {
-        hasWs: this.ws != null,
-        wsReadyState: this.ws?.readyState,
-      })
+      BaseError.assert(this.ws != null, 'ws missing')
       BaseError.assert(
-        this.ws.readyState != ReadyState.CLOSING ||
-          this.ws.readyState != ReadyState.CLOSED,
-        'ws not connected',
+        this.state != state.STOPPING && this.state != state.STOPPED,
+        'wsm not started',
         {
           hasWs: this.ws != null,
           wsReadyState: this.ws?.readyState,
         },
       )
-      if (this.ws.readyState != ReadyState.CONNECTING) {
-        console.log('[SocketManager] sendRequest: awaiting connection', {
-          hasWs: this.ws != null,
-          wsReadyState: this.ws?.readyState,
-        })
+      if (this.state != state.STARTING) {
         await this.start()
       }
       ws = this.ws!
@@ -114,30 +106,31 @@ export default class CameraSocketManager extends WebSocketManager {
 
     const controller = new AbortController()
     const requestIdString = request.id.toString()
-
-    return Promise.race<Response>([
-      timeout(timeoutMs, controller.signal).then(() => {
-        throw new Error('timeout')
-      }) as Promise<never>,
-      // request promise
-      new Promise<Response>((resolve, reject) => {
-        controller.signal.addEventListener('aborted', () =>
-          this.responseEmitter.removeListener(requestIdString, resolve),
-        )
-        // handle response
-        this.responseEmitter.once(requestIdString, resolve)
-        // send request
-        const message = proto.Message.create({
-          type: proto.Message.Type.REQUEST,
-          request,
-        })
-        ws.send(proto.Message.encode(message).finish(), (err) => {
-          if (err != null) reject(err)
-        })
-      }),
-    ]).finally(() => {
+    try {
+      return Promise.race<Response>([
+        timeout(timeoutMs, controller.signal).then(() => {
+          throw new Error('timeout')
+        }) as Promise<never>,
+        // request promise
+        new Promise<Response>((resolve, reject) => {
+          controller.signal.addEventListener('aborted', () =>
+            this.responseEmitter.removeListener(requestIdString, resolve),
+          )
+          // handle response
+          this.responseEmitter.once(requestIdString, resolve)
+          // send request
+          const message = proto.Message.create({
+            type: proto.Message.Type.REQUEST,
+            request,
+          })
+          ws.send(proto.Message.encode(message).finish(), (err) => {
+            if (err != null) reject(err)
+          })
+        }),
+      ])
+    } finally {
       controller.abort()
-    })
+    }
   }
 
   startStreaming = memoizeConcurrent(async (rtmpUrl: string): Promise<{}> => {

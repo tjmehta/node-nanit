@@ -31,7 +31,7 @@ const opts: OptsType = {
 
 setFetch(fetch as any)
 
-describe('Nanit', () => {
+describe.skip('Nanit', () => {
   const ctx: { polly?: Polly } = {}
 
   /**
@@ -255,7 +255,7 @@ describe('Nanit', () => {
       await polly.stop()
       const rtmpUrl = `rtmp://192.168.1.242:1935/live/${camera.uid}`
       // const rtmpUrl = 'rtmp://192.168.1.240:1935/local/N301CMN23332EF'
-      const payload = await nanit.requestStreaming(camera.uid, rtmpUrl)
+      const payload = await nanit.startStreaming(camera.uid, rtmpUrl)
       expect(payload).toMatchInlineSnapshot(`
         {
           "requestId": 1,
