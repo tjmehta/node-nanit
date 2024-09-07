@@ -32,7 +32,7 @@ export default class WebSocketManager extends AbstractStartable {
       await new Promise<void>((resolve, reject) => {
         this.ws = new WS(...this.wsArgs)
         this.ws.once('error', (err: unknown) => {
-          console.error('WS: error', err)
+          console.error('WS: start: ws error', err)
           this.ws = null
           reject(err)
         })
@@ -41,15 +41,22 @@ export default class WebSocketManager extends AbstractStartable {
             // expected close
             return
           }
-          // starting or started
+
           console.warn('WS: unexpected close', { state: this.state })
-          // cleanup ws
+
+          if (this.state === state.STARTING) {
+            this.ws = null
+            reject(new Error('WS: unexpected close'))
+            return
+          }
+
+          // this.state === state.STARTED
           this.stop({ force: true }).catch((err) => {
-            console.error('WS: onClose: stop: error', err)
+            console.error('WS: unexpected close: stop error', err)
           })
         })
         this.ws.once('open', () => {
-          console.log('WS: open')
+          console.log('WS: start: open')
           resolve()
         })
       })
