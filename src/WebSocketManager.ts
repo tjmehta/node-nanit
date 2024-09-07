@@ -44,7 +44,7 @@ export default class WebSocketManager extends AbstractStartable {
           // starting or started
           console.warn('WS: unexpected close', { state: this.state })
           // cleanup ws
-          this.stop().catch((err) => {
+          this.stop({ force: true }).catch((err) => {
             console.error('WS: onClose: stop: error', err)
           })
         })
@@ -72,7 +72,9 @@ export default class WebSocketManager extends AbstractStartable {
     }
   }
 
-  protected async _stop(): Promise<void> {
+  protected async _stop(
+    { force }: { force?: boolean } = { force: false },
+  ): Promise<void> {
     console.log('WS: stop')
     return new Promise<void>((resolve, reject) => {
       if (this.ws == null) {
@@ -81,9 +83,14 @@ export default class WebSocketManager extends AbstractStartable {
       }
 
       if (
+        force ||
         this.ws.readyState === WS.CLOSED ||
         this.ws.readyState === WS.CLOSING
       ) {
+        console.log('WS: stop: force', {
+          state: this.state,
+          readyState: this.ws?.readyState,
+        })
         this.ws = null
         return resolve()
       }
