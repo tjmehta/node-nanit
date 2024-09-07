@@ -256,8 +256,8 @@ export class NanitCameraStreamManager extends AbstractStartable {
     await Promise.race([
       timeout(20 * 1000, controller.signal).then(() => {
         const err = new Error('timeout')
-        this.publishingDeferred?.reject(err)
         this.publishingDeferred = null
+        throw err
       }),
       raceAbort(
         controller.signal,

@@ -454,6 +454,7 @@ export default class Nanit extends ApiClient {
       }
       try {
         await cameraSocketManager.start()
+        return cameraSocketManager
       } catch (err) {
         if (err instanceof WebSockerStatusCodeError && err.status === 401) {
           console.warn(
@@ -465,8 +466,6 @@ export default class Nanit extends ApiClient {
         }
         throw err
       }
-
-      return cameraSocketManager
     },
   )
 
