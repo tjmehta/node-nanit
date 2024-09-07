@@ -222,8 +222,10 @@ export class CameraStreamManager extends AbstractStartable {
             cameraUid: this.cameraUid,
           },
         )
+        const startPromise = this.start()
         this.publishingDeferred.resolve()
         this.publishingDeferred = null
+        await startPromise
         return this.stop({ force: true })
       }
 
