@@ -58,9 +58,11 @@ export default class WebSocketManager extends AbstractStartable {
       deferred.reject(err)
     })
     this.ws.once('close', () => {
-      console.log('WS: close')
+      console.warn('WS: unexpected close')
       // cleanup ws
-      this.stop()
+      this.stop().catch((err) => {
+        console.error('WS: onClose: stop: error', err)
+      })
     })
     this.ws.once('open', () => {
       console.log('WS: open')
@@ -86,14 +88,17 @@ export default class WebSocketManager extends AbstractStartable {
     this.ws.removeAllListeners('open')
     this.ws.removeAllListeners('close')
     this.ws.removeAllListeners('error')
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       console.warn('WS: stop: timeout', { readyState: this.ws?.readyState })
       if (this.ws?.readyState === WS.CLOSING) {
         deferred.reject(new Error('WS: stop: timeout'))
       }
+      this.ws = null
       deferred.resolve()
     }, 60 * 1000)
     this.ws.once('close', () => {
+      clearTimeout(timeoutId)
+      this.ws = null
       deferred.resolve()
     })
     this.ws.close()
