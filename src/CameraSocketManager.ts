@@ -1,9 +1,10 @@
-import { StartOptsType } from 'abstract-startable'
-import WebSocketManager from './WebSocketManager'
+import { StartOptsType, state, StopOptsType } from 'abstract-startable'
+import WebSocketManager, { ReadyState, WebSocketType } from './WebSocketManager'
 import EventEmitter from 'events'
 import { client as proto } from './proto/nanit'
 import timeout from 'abortable-timeout'
 import memoizeConcurrent from 'memoize-concurrent'
+import BaseError from 'baseerr'
 
 type CameraSocketManagerOpts = {
   ws: ConstructorParameters<typeof WebSocketManager>[2]
@@ -26,14 +27,25 @@ export default class CameraSocketManager extends WebSocketManager {
     this.requestTimeoutMs = opts.requestTimeoutMs
   }
 
-  protected async _start(opts?: StartOptsType): Promise<void> {
-    console.log('CameraSocketManager: _start', { cameraUID: this.cameraUID })
-    await super._start(opts)
-    await this.getConnectedWebSocketAndHandleMessage()
+  private handleMessages = () => {
+    BaseError.assert(this.ws != null, 'ws not connected')
+    const ws = this.ws
+    if (ws.listenerCount('message', this.handleMessage) === 0) {
+      ws.on('message', this.handleMessage)
+    }
   }
 
-  protected async _stop(): Promise<void> {
-    console.log('CameraSocketManager: _stop', { cameraUID: this.cameraUID })
+  protected async _start(opts?: StartOptsType): Promise<void> {
+    console.log('[SocketManager] _start', { cameraUID: this.cameraUID })
+    await super._start(opts)
+    this.handleMessages()
+    console.log('[SocketManager] _start: super _start success', {
+      cameraUID: this.cameraUID,
+    })
+  }
+
+  protected async _stop(opts?: StopOptsType): Promise<void> {
+    console.log('[SocketManager] _stop', { cameraUID: this.cameraUID })
     await Promise.all(
       [...this.activeStreamUrls].map((rtmpUrl) => this.stopStreaming(rtmpUrl)),
     )
@@ -47,25 +59,59 @@ export default class CameraSocketManager extends WebSocketManager {
     return ++this.lastRequestId
   }
 
-  getConnectedWebSocketAndHandleMessage = memoizeConcurrent(async () => {
-    const ws = await this.getConnectedWebSocket()
-    if (ws.listenerCount('message', this.handleMessage) === 0) {
-      ws.on('message', this.handleMessage)
-    }
-    return ws
-  })
+  getConnectedWebSocketAndHandleMessage = memoizeConcurrent(
+    async (): Promise<WebSocketType> => {
+      console.log('[SocketManager] getConnectedWebSocketAndHandleMessage', {
+        cameraUID: this.cameraUID,
+        hasWs: this.ws != null,
+        wsReadyState: this.ws?.readyState,
+      })
+      const ws = await this.getConnectedWebSocket()
+      this.handleMessages()
+      return ws
+    },
+  )
 
   private handleMessage = (data: Buffer) => {
     const response = proto.Response.decode(new Uint8Array(data))
-    console.log('CameraSocketManager: response', response)
+    console.log('[SocketManager] response', response)
     this.responseEmitter.emit(response.requestId.toString(), response)
   }
 
   async sendRequest<Response extends proto.Response>(
     request: proto.Request,
-    { timeoutMs }: { timeoutMs: number } = { timeoutMs: this.requestTimeoutMs },
+    { timeoutMs, autoConnect }: { timeoutMs: number; autoConnect: boolean } = {
+      timeoutMs: this.requestTimeoutMs,
+      autoConnect: true,
+    },
   ): Promise<Response> {
-    const ws = await this.getConnectedWebSocketAndHandleMessage()
+    let ws: WebSocketType
+    if (autoConnect) {
+      ws = await this.getConnectedWebSocketAndHandleMessage()
+    } else {
+      BaseError.assert(this.ws != null, 'ws not connected', {
+        hasWs: this.ws != null,
+        wsReadyState: this.ws?.readyState,
+      })
+      BaseError.assert(
+        this.ws.readyState != ReadyState.CLOSING ||
+          this.ws.readyState != ReadyState.CLOSED,
+        'ws not connected',
+        {
+          hasWs: this.ws != null,
+          wsReadyState: this.ws?.readyState,
+        },
+      )
+      if (this.ws.readyState != ReadyState.CONNECTING) {
+        console.log('[SocketManager] sendRequest: awaiting connection', {
+          hasWs: this.ws != null,
+          wsReadyState: this.ws?.readyState,
+        })
+        await this.start()
+      }
+      ws = this.ws!
+    }
+
     const controller = new AbortController()
     const requestIdString = request.id.toString()
 
@@ -95,7 +141,7 @@ export default class CameraSocketManager extends WebSocketManager {
   }
 
   startStreaming = memoizeConcurrent(async (rtmpUrl: string): Promise<{}> => {
-    console.log('CameraSocketManager: startStreaming: rtmpUrl', {
+    console.log('[SocketManager] startStreaming: rtmpUrl', {
       cameraUID: this.cameraUID,
       rtmpUrl,
     })
@@ -110,9 +156,12 @@ export default class CameraSocketManager extends WebSocketManager {
         attempts: 1,
       }),
     })
-    const res = await this.sendRequest(request)
+    const res = await this.sendRequest(request, {
+      timeoutMs: this.requestTimeoutMs,
+      autoConnect: true,
+    })
 
-    console.log('CameraSocketManager: startStreaming: request success', {
+    console.log('[SocketManager] startStreaming: request success', {
       cameraUID: this.cameraUID,
       rtmpUrl,
       res: res.toJSON(),
@@ -123,7 +172,7 @@ export default class CameraSocketManager extends WebSocketManager {
   })
 
   stopStreaming = memoizeConcurrent(async (rtmpUrl: string): Promise<{}> => {
-    console.log('CameraSocketManager: stopStreaming: rtmpUrl', {
+    console.log('[SocketManager] stopStreaming: rtmpUrl', {
       cameraUID: this.cameraUID,
       rtmpUrl,
     })
@@ -140,18 +189,29 @@ export default class CameraSocketManager extends WebSocketManager {
     })
 
     if (!this.activeStreamUrls.has(rtmpUrl)) {
-      console.warn('CameraSocketManager: stopStreaming: rtmpUrl not streaming')
+      console.warn('[SocketManager] stopStreaming: rtmpUrl not streaming')
       // fall through and stop anyway
     }
     this.activeStreamUrls.delete(rtmpUrl)
+    try {
+      const res = await this.sendRequest(request, {
+        timeoutMs: this.requestTimeoutMs,
+        autoConnect: false,
+      })
+      console.log('[SocketManager] stopStreaming: request success', {
+        cameraUID: this.cameraUID,
+        rtmpUrl,
+        res: res.toJSON(),
+      })
 
-    const res = await this.sendRequest(request)
-    console.log('CameraSocketManager: stopStreaming: request success', {
-      cameraUID: this.cameraUID,
-      rtmpUrl,
-      res: res.toJSON(),
-    })
-
-    return res.toJSON()
+      return res.toJSON()
+    } catch (err) {
+      console.warn('[SocketManager] stopStreaming: request error', {
+        cameraUID: this.cameraUID,
+        rtmpUrl,
+        err,
+      })
+      return {}
+    }
   })
 }

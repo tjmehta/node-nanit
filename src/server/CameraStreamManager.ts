@@ -256,11 +256,16 @@ export class CameraStreamManager extends AbstractStartable<CSMStartOptsType> {
     return nanit
       .startStreaming(this.cameraUid, rtmpUrl)
       .then(() => {
-        console.log('[StreamManager] _start: startStreaming success', {
+        console.log('[StreamManager] _start: startStreaming request success', {
           cameraUid: this.cameraUid,
         })
       })
       .then(() => this.publishingDeferred?.promise)
+      .then(() => {
+        console.log('[StreamManager] _start: startStreaming publish success', {
+          cameraUid: this.cameraUid,
+        })
+      })
       .catch((err) => {
         console.error('[StreamManager] _start: startStreaming error', {
           err,

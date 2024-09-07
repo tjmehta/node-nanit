@@ -1,13 +1,18 @@
 import AbstractStartable, { StartOptsType, state } from 'abstract-startable'
 import WS from 'ws'
-import Deferred from 'p-defer'
-import BaseError from 'baseerr'
 import memoizeConcurrent from 'memoize-concurrent'
 import { StatusCodeError as SimpleApiClientStatusCodeError } from 'simple-api-client'
 
 export type WebSocketType = WS
 export type WebSocketOptions = WS.ClientOptions
 export const StatusCodeError = SimpleApiClientStatusCodeError
+
+export enum ReadyState {
+  CONNECTING = WS.CONNECTING,
+  OPEN = WS.OPEN,
+  CLOSING = WS.CLOSING,
+  CLOSED = WS.CLOSED,
+}
 
 export default class WebSocketManager extends AbstractStartable {
   private wsArgs: ConstructorParameters<typeof WS>

@@ -436,7 +436,7 @@ export default class Nanit extends ApiClient {
         this.sessionCache != null,
         'session required (login first)',
       )
-      console.log('CameraSocketManager: getCameraSocketManager: start', {
+      console.log('CameraSocketManager: getCameraSocketManager', {
         cameraUID,
       })
 
@@ -444,6 +444,7 @@ export default class Nanit extends ApiClient {
         this.cameraSocketManagers.get(cameraUID) ??
         new CameraSocketManager(cameraUID, {
           ws: {
+            handshakeTimeout: 1000 * 10,
             headers: {
               Authorization: `Bearer ${
                 this.sessionCache.value.token ??
@@ -463,11 +464,17 @@ export default class Nanit extends ApiClient {
           },
         )
         await cameraSocketManager.start()
+        console.log(
+          'CameraSocketManager: getCameraSocketManager: cameraSocketManager success',
+          {
+            cameraUID,
+          },
+        )
         return cameraSocketManager
       } catch (err) {
         if (err instanceof WebSockerStatusCodeError && err.status === 401) {
           console.warn(
-            'CameraSocketManager: getCameraSocketManager: start: error',
+            'CameraSocketManager: getCameraSocketManager: cameraSocketManager start: error',
             { cameraUID, err },
           )
           await this.refreshSession()
