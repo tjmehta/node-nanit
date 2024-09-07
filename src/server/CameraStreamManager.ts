@@ -261,8 +261,15 @@ export class CameraStreamManager extends AbstractStartable {
         throw err
       }),
       raceAbort(controller.signal, () => {
+        console.log('[StreamManager] _start: startStreaming', {
+          cameraUid: this.cameraUid,
+        })
         this.cameraStreamSubscriberIds.clear()
-        return nanit.startStreaming(this.cameraUid, rtmpUrl)
+        return nanit.startStreaming(this.cameraUid, rtmpUrl).then(() => {
+          console.log('[StreamManager] _start: startStreaming success', {
+            cameraUid: this.cameraUid,
+          })
+        })
       }).then(() => this.publishingDeferred?.promise),
     ])
       .catch((err) => {
@@ -292,8 +299,15 @@ export class CameraStreamManager extends AbstractStartable {
         throw err
       }),
       raceAbort(controller.signal, () => {
+        console.log('[StreamManager] _stop: stopStreaming', {
+          cameraUid: this.cameraUid,
+        })
         this.cameraStreamSubscriberIds.clear()
-        return nanit.stopStreaming(this.cameraUid, rtmpUrl)
+        return nanit.stopStreaming(this.cameraUid, rtmpUrl).then(() => {
+          console.log('[StreamManager] _stop: stopStreaming success', {
+            cameraUid: this.cameraUid,
+          })
+        })
       }).then(() => this.donePublishingDeferred?.promise),
     ])
       .catch((err) => {
