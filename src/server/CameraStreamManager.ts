@@ -1,11 +1,13 @@
-import AbstractStartable, { state } from 'abstract-startable'
+import AbstractStartable, {
+  StartOptsType,
+  state,
+  StopOptsType,
+} from 'abstract-startable'
 import { NanitManager } from './nanitManager'
 import envVar from 'env-var'
 import timeout from 'abortable-timeout'
 import memoizeConcurrent from 'memoize-concurrent'
 import createDeferredPromise, { DeferredPromise } from 'p-defer'
-import { assert } from 'console'
-import raceAbort from 'race-abort'
 const { get } = envVar
 
 const RTMP_HOST = get('RTMP_HOST').required().asString()
@@ -14,7 +16,11 @@ const NANIT_CAMERA_STOP_DELAY = get('NANIT_CAMERA_STOP_DELAY')
   .default(60 * 1000)
   .asIntPositive()
 
-export class CameraStreamManager extends AbstractStartable {
+type CSMStartOptsType = StartOptsType & {
+  force?: boolean
+}
+
+export class CameraStreamManager extends AbstractStartable<CSMStartOptsType> {
   private nanitManager: NanitManager
   private cameraUid: string
   private publishingDeferred: DeferredPromise<void> | null = null
@@ -43,7 +49,10 @@ export class CameraStreamManager extends AbstractStartable {
     const currSize = this.cameraStreamSubscriberIds.size
 
     if (currSize > prevSize) {
-      this.cancelDelayedStop('addSubscriber')
+      console.log('[StreamManager] addSubscriber: one added: forceStart', {
+        subscriberCount: currSize,
+        cameraUid: this.cameraUid,
+      })
       return this.forceStart()
     }
   }
@@ -52,11 +61,26 @@ export class CameraStreamManager extends AbstractStartable {
     this.cameraStreamSubscriberIds.delete(subscriberId)
 
     if (this.cameraStreamSubscriberIds.size === 0) {
-      return this.delayedStop()
+      console.log('[StreamManager] deleteSubscriber: none left: delayedStop', {
+        cameraUid: this.cameraUid,
+        subscriberCount: this.cameraStreamSubscriberIds.size,
+      })
+      this.delayedStop().catch((err) => {
+        console.error(
+          '[StreamManager] deleteSubscriber: none left: delayedStop error',
+          {
+            err,
+            cameraUid: this.cameraUid,
+            subscriberCount: this.cameraStreamSubscriberIds.size,
+          },
+        )
+      })
     }
   }
 
   publish() {
+    if (this.stoppedForever) return // stopped forever, dont care about publishing state
+
     if (this.publishingDeferred) {
       console.log('[StreamManager] publish: resolve', {
         cameraUid: this.cameraUid,
@@ -67,20 +91,10 @@ export class CameraStreamManager extends AbstractStartable {
     }
 
     // if already "stopped", dont care
-    // ("stopping" should technically have donePublishingDeferred above)
-    if (this.state === state.STOPPED || this.state === state.STOPPING) {
+    if (this.state === state.STOPPING || this.state === state.STOPPED) {
       console.warn('[StreamManager] publish: unexpected while stopped', {
         cameraUid: this.cameraUid,
         state: this.state,
-      })
-      this.forceStop().catch((err) => {
-        console.error(
-          '[StreamManager] publish: unexpected while stopped: force stop error',
-          {
-            err,
-            cameraUid: this.cameraUid,
-          },
-        )
       })
       return
     }
@@ -101,7 +115,7 @@ export class CameraStreamManager extends AbstractStartable {
 
     // if already "stopped", dont care
     // ("stopping" should technically have donePublishingDeferred above)
-    if (this.state === 'STOPPED' || this.state === 'STOPPING') {
+    if (this.state === state.STOPPED || this.state === state.STOPPING) {
       console.warn('[StreamManager] donePublish: unexpected while stopped', {
         cameraUid: this.cameraUid,
         state: this.state,
@@ -158,15 +172,16 @@ export class CameraStreamManager extends AbstractStartable {
         return
       }
 
-      this.delayedStopController = new AbortController()
-      console.log('[StreamManager] delayedStop: scheduled', {
+      console.log('[StreamManager] delayedStop: schedule', {
         cameraUid: this.cameraUid,
       })
+      this.delayedStopController = new AbortController()
       await timeout(NANIT_CAMERA_STOP_DELAY, this.delayedStopController.signal)
-      this.delayedStopController = null
+
       console.log('[StreamManager] delayedStop: stop now', {
         cameraUid: this.cameraUid,
       })
+      this.delayedStopController = null
       return this.stop()
     },
     {
@@ -189,22 +204,7 @@ export class CameraStreamManager extends AbstractStartable {
 
   private forceStart = memoizeConcurrent(
     async () => {
-      assert(!this.stoppedForever, 'stopped forever, cannot be restarted')
-
-      console.log('[StreamManager] forceStart', { cameraUid: this.cameraUid })
-
-      if (this.state === state.STOPPING) {
-        console.log('[StreamManager] forceStart: wait for stop to complete', {
-          cameraUid: this.cameraUid,
-        })
-        // if force start and stopping, wait for stop to complete, and then start
-        await this.stop()
-      }
-
-      console.log('[StreamManager] forceStart: start', {
-        cameraUid: this.cameraUid,
-      })
-      return this.start()
+      this.start({ force: true })
     },
     {
       cacheKey: () => 'all',
@@ -213,35 +213,6 @@ export class CameraStreamManager extends AbstractStartable {
 
   private forceStop = memoizeConcurrent(
     async () => {
-      console.log('[StreamManager] forceStop', { cameraUid: this.cameraUid })
-
-      if (this.state === state.STARTING && this.publishingDeferred) {
-        console.log(
-          '[StreamManager] forceStop: starting, dont wait for publishing to begin',
-          {
-            cameraUid: this.cameraUid,
-          },
-        )
-        const startPromise = this.start()
-        this.publishingDeferred.resolve()
-        this.publishingDeferred = null
-        await startPromise
-        return this.stop({ force: true })
-      }
-
-      if (this.state === state.STOPPING && this.donePublishingDeferred) {
-        console.log(
-          '[StreamManager] forceStop: stopping, dont wait for publishing to finish',
-          {
-            cameraUid: this.cameraUid,
-          },
-        )
-        const stopPromise = this.stop({ force: true })
-        this.donePublishingDeferred.resolve()
-        this.donePublishingDeferred = null
-        return stopPromise
-      }
-
       return this.stop({ force: true })
     },
     {
@@ -249,29 +220,47 @@ export class CameraStreamManager extends AbstractStartable {
     },
   )
 
-  async _start() {
+  async start(opts?: CSMStartOptsType): Promise<void> {
+    this.cancelDelayedStop('start')
+    console.log('[StreamManager] start', {
+      cameraUid: this.cameraUid,
+      state: this.state,
+      opts,
+    })
+
+    if (this.state === state.STARTED) return
+    if (this.state === state.STARTING) return this.startPromise
+    if (this.state === state.STOPPING) {
+      if (opts?.force) {
+        // stop and start immediately
+        return this.stop({ force: true }).then(() => super.start(opts))
+      }
+      return Promise.reject(
+        new Error('cannot start server, server is stopping'),
+      )
+    }
+    // this.state === state.STOPPED
+    return super.start(opts)
+  }
+
+  async _start(opts?: CSMStartOptsType) {
     const nanit = this.nanitManager.get()
     const rtmpUrl = CameraStreamManager.rtmpUrl(this.cameraUid)
     const controller = new AbortController()
 
     this.publishingDeferred = createDeferredPromise()
-    await Promise.race([
-      timeout(120 * 1000, controller.signal).then(() => {
-        const err = new Error('timeout')
-        throw err
-      }),
-      raceAbort(controller.signal, () => {
-        console.log('[StreamManager] _start: startStreaming', {
+
+    console.log('[StreamManager] _start: startStreaming', {
+      cameraUid: this.cameraUid,
+    })
+    return nanit
+      .startStreaming(this.cameraUid, rtmpUrl)
+      .then(() => {
+        console.log('[StreamManager] _start: startStreaming success', {
           cameraUid: this.cameraUid,
         })
-        this.cameraStreamSubscriberIds.clear()
-        return nanit.startStreaming(this.cameraUid, rtmpUrl).then(() => {
-          console.log('[StreamManager] _start: startStreaming success', {
-            cameraUid: this.cameraUid,
-          })
-        })
-      }).then(() => this.publishingDeferred?.promise),
-    ])
+      })
+      .then(() => this.publishingDeferred?.promise)
       .catch((err) => {
         console.error('[StreamManager] _start: startStreaming error', {
           err,
@@ -285,38 +274,73 @@ export class CameraStreamManager extends AbstractStartable {
       })
   }
 
-  async _stop({ force }: { force?: boolean } = { force: false }) {
+  async stop(opts?: StopOptsType): Promise<void> {
     this.cancelDelayedStop('stop')
+    console.log('[StreamManager] stop', {
+      cameraUid: this.cameraUid,
+      state: this.state,
+      opts,
+    })
 
+    if (this.state === state.STOPPED) return
+    if (this.state === state.STOPPING) {
+      if (opts?.force) {
+        console.log('[StreamManager] stop: force stop', {
+          cameraUid: this.cameraUid,
+          state: this.state,
+        })
+        if (this.donePublishingDeferred) {
+          this.donePublishingDeferred.resolve()
+        }
+        return this.stopPromise
+      }
+      return this.stopPromise
+    }
+    // this.state === state.STARTING
+    // this.state === state.STARTED
+    const stopPromise = super.stop(opts)
+
+    if (opts?.force) {
+      console.log('[StreamManager] stop: force stop', {
+        cameraUid: this.cameraUid,
+        state: this.state,
+      })
+      if (this.publishingDeferred) {
+        this.publishingDeferred.reject(new Error('force stop'))
+        this.publishingDeferred = null
+      }
+    }
+
+    return stopPromise
+  }
+
+  async _stop(opts?: StopOptsType) {
     const nanit = this.nanitManager.get()
     const rtmpUrl = CameraStreamManager.rtmpUrl(this.cameraUid)
     const controller = new AbortController()
 
-    if (!force) this.donePublishingDeferred = createDeferredPromise()
-    await Promise.race([
-      timeout(120 * 1000, controller.signal).then(() => {
-        const err = new Error('timeout')
-        throw err
-      }),
-      raceAbort(controller.signal, () => {
-        console.log('[StreamManager] _stop: stopStreaming', {
+    if (!opts?.force) this.donePublishingDeferred = createDeferredPromise()
+
+    console.log('[StreamManager] _stop: stopStreaming', {
+      cameraUid: this.cameraUid,
+    })
+    return nanit
+      .stopStreaming(this.cameraUid, rtmpUrl)
+      .then(() => {
+        console.log('[StreamManager] _stop: stopStreaming success', {
           cameraUid: this.cameraUid,
         })
-        this.cameraStreamSubscriberIds.clear()
-        return nanit.stopStreaming(this.cameraUid, rtmpUrl).then(() => {
-          console.log('[StreamManager] _stop: stopStreaming success', {
-            cameraUid: this.cameraUid,
-          })
-        })
-      }).then(() => this.donePublishingDeferred?.promise),
-    ])
+      })
+      .then(() => this.donePublishingDeferred?.promise)
       .catch((err) => {
         console.warn('[StreamManager] _stop: stopStreaming error', {
           err,
           cameraUid: this.cameraUid,
         })
+        // dont throw, just warn
       })
       .finally(() => {
+        this.cameraStreamSubscriberIds.clear()
         this.donePublishingDeferred = null
         controller.abort()
       })
