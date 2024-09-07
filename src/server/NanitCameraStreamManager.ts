@@ -5,7 +5,7 @@ import timeout from 'abortable-timeout'
 import memoizeConcurrent from 'memoize-concurrent'
 import createDeferredPromise, { DeferredPromise } from 'p-defer'
 import { assert } from 'console'
-import { raceAbort } from 'race-abort'
+import raceAbort from 'race-abort'
 const { get } = envVar
 
 const RTMP_HOST = get('RTMP_HOST').required().asString()
