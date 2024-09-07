@@ -94,11 +94,7 @@ export default class WebSocketManager extends AbstractStartable {
 
       const timeoutId = setTimeout(() => {
         console.warn('WS: stop: timeout', { readyState: this.ws?.readyState })
-        if (this.ws?.readyState === WS.CLOSING) {
-          this.ws = null
-          reject(new Error('WS: stop: timeout'))
-          return
-        }
+        // force close
         this.ws = null
         resolve()
       }, 60 * 1000)
