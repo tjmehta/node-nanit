@@ -15,8 +15,7 @@ import envVar from 'env-var'
 import { CameraMessage, CameraMessageType } from '../validateBabyMessage'
 import { Subscription } from 'rxjs'
 import mqtt from 'async-mqtt'
-import { CameraType } from '../validateBabyCameras'
-import { NanitCameraStreamManager } from './NanitCameraStreamManager'
+import { CameraStreamManager } from './CameraStreamManager'
 const { get } = envVar
 
 const HTTP_PORT = get('HTTP_PORT').default(3000).asPortNumber()
@@ -43,7 +42,7 @@ function mqttTopic(cameraUid: string): string {
 }
 
 class AppServer extends AbstractStartable {
-  private cameraStreamManagers = new Map<string, NanitCameraStreamManager>()
+  private cameraStreamManagers = new Map<string, CameraStreamManager>()
   private cameraMessageSubscriptions = new Map<string, Subscription>()
   private nanitManager = nanitManager
   private mqtt: mqtt.AsyncMqttClient | null = null
@@ -296,7 +295,7 @@ class AppServer extends AbstractStartable {
 
       let cameraStreamManager =
         this.cameraStreamManagers.get(cameraUid) ??
-        new NanitCameraStreamManager(this.nanitManager, cameraUid)
+        new CameraStreamManager(this.nanitManager, cameraUid)
 
       this.cameraStreamManagers.set(cameraUid, cameraStreamManager)
 

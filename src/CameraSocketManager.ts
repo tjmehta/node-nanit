@@ -29,11 +29,13 @@ export default class CameraSocketManager extends WebSocketManager {
   }
 
   protected async _start(opts?: StartOptsType): Promise<void> {
+    console.log('CameraSocketManager: _start', { cameraUID: this.cameraUID })
     await super._start(opts)
     await this.getConnectedWebSocketAndHandleMessage()
   }
 
   protected async _stop(): Promise<void> {
+    console.log('CameraSocketManager: _stop', { cameraUID: this.cameraUID })
     await Promise.all(
       [...this.activeStreamUrls].map((rtmpUrl) => this.stopStreaming(rtmpUrl)),
     )
@@ -66,11 +68,6 @@ export default class CameraSocketManager extends WebSocketManager {
     { timeoutMs }: { timeoutMs: number } = { timeoutMs: this.requestTimeoutMs },
   ): Promise<Response> {
     const ws = await this.getConnectedWebSocketAndHandleMessage()
-    const message = proto.Message.create({
-      type: proto.Message.Type.REQUEST,
-      request,
-    })
-
     const controller = new AbortController()
     const requestIdString = request.id.toString()
 
@@ -86,6 +83,10 @@ export default class CameraSocketManager extends WebSocketManager {
         // handle response
         this.responseEmitter.once(requestIdString, resolve)
         // send request
+        const message = proto.Message.create({
+          type: proto.Message.Type.REQUEST,
+          request,
+        })
         ws.send(proto.Message.encode(message).finish(), (err) => {
           if (err != null) reject(err)
         })
@@ -96,7 +97,11 @@ export default class CameraSocketManager extends WebSocketManager {
   }
 
   startStreaming = memoizeConcurrent(async (rtmpUrl: string): Promise<{}> => {
-    console.log('CameraSocketManager: requestStreaming: rtmpUrl', rtmpUrl)
+    console.log('CameraSocketManager: startStreaming: rtmpUrl', {
+      cameraUID: this.cameraUID,
+      rtmpUrl,
+    })
+
     const request = proto.Request.create({
       id: this.generateRequestId(),
       type: proto.RequestType.PUT_STREAMING,
@@ -107,18 +112,24 @@ export default class CameraSocketManager extends WebSocketManager {
         attempts: 1,
       }),
     })
-
     const res = await this.sendRequest(request)
-    console.log('CameraSocketManager: requestStreaming: res', res)
+
+    console.log('CameraSocketManager: startStreaming: request success', {
+      cameraUID: this.cameraUID,
+      rtmpUrl,
+      res: res.toJSON(),
+    })
     this.activeStreamUrls.add(rtmpUrl)
 
-    const payload = res.toJSON()
-
-    return payload
+    return res.toJSON()
   })
 
   stopStreaming = memoizeConcurrent(async (rtmpUrl: string): Promise<{}> => {
-    console.log('CameraSocketManager: stopStreaming: rtmpUrl', rtmpUrl)
+    console.log('CameraSocketManager: stopStreaming: rtmpUrl', {
+      cameraUID: this.cameraUID,
+      rtmpUrl,
+    })
+
     const request = proto.Request.create({
       id: this.generateRequestId(),
       type: proto.RequestType.PUT_STREAMING,
@@ -131,17 +142,18 @@ export default class CameraSocketManager extends WebSocketManager {
     })
 
     if (!this.activeStreamUrls.has(rtmpUrl)) {
-      console.warn('CameraSocketManager: stopStreaming: rtmpUrl not active')
+      console.warn('CameraSocketManager: stopStreaming: rtmpUrl not streaming')
       // fall through and stop anyway
     }
     this.activeStreamUrls.delete(rtmpUrl)
+
     const res = await this.sendRequest(request)
-    console.log('CameraSocketManager: stopStreaming: res', res)
+    console.log('CameraSocketManager: stopStreaming: request success', {
+      cameraUID: this.cameraUID,
+      rtmpUrl,
+      res: res.toJSON(),
+    })
 
-    // res.statusCode
-
-    const payload = res.toJSON()
-
-    return payload
+    return res.toJSON()
   })
 }

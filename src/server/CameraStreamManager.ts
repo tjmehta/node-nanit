@@ -14,7 +14,7 @@ const NANIT_CAMERA_STOP_DELAY = get('NANIT_CAMERA_STOP_DELAY')
   .default(60 * 1000)
   .asIntPositive()
 
-export class NanitCameraStreamManager extends AbstractStartable {
+export class CameraStreamManager extends AbstractStartable {
   private nanitManager: NanitManager
   private cameraUid: string
   private publishingDeferred: DeferredPromise<void> | null = null
@@ -34,7 +34,7 @@ export class NanitCameraStreamManager extends AbstractStartable {
   }
 
   rtmpUrl() {
-    return NanitCameraStreamManager.rtmpUrl(this.cameraUid)
+    return CameraStreamManager.rtmpUrl(this.cameraUid)
   }
 
   async addSubscriber(subscriberId: string) {
@@ -249,12 +249,12 @@ export class NanitCameraStreamManager extends AbstractStartable {
 
   async _start() {
     const nanit = this.nanitManager.get()
-    const rtmpUrl = NanitCameraStreamManager.rtmpUrl(this.cameraUid)
+    const rtmpUrl = CameraStreamManager.rtmpUrl(this.cameraUid)
 
     const controller = new AbortController()
     this.publishingDeferred = createDeferredPromise()
     await Promise.race([
-      timeout(20 * 1000, controller.signal).then(() => {
+      timeout(120 * 1000, controller.signal).then(() => {
         const err = new Error('timeout')
         this.publishingDeferred = null
         throw err
@@ -273,7 +273,7 @@ export class NanitCameraStreamManager extends AbstractStartable {
     this.cancelDelayedStop('stop')
 
     const nanit = this.nanitManager.get()
-    const rtmpUrl = NanitCameraStreamManager.rtmpUrl(this.cameraUid)
+    const rtmpUrl = CameraStreamManager.rtmpUrl(this.cameraUid)
 
     if (!force) this.donePublishingDeferred = createDeferredPromise()
     try {
