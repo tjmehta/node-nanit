@@ -5,6 +5,7 @@ import timeout from 'abortable-timeout'
 import memoizeConcurrent from 'memoize-concurrent'
 import createDeferredPromise, { DeferredPromise } from 'p-defer'
 import { assert } from 'console'
+import { raceAbort } from 'race-abort'
 const { get } = envVar
 
 const RTMP_HOST = get('RTMP_HOST').required().asString()
@@ -250,8 +251,21 @@ export class NanitCameraStreamManager extends AbstractStartable {
     const nanit = this.nanitManager.get()
     const rtmpUrl = NanitCameraStreamManager.rtmpUrl(this.cameraUid)
 
+    const controller = new AbortController()
     this.publishingDeferred = createDeferredPromise()
-    await nanit.startStreaming(this.cameraUid, rtmpUrl)
+    await Promise.race([
+      timeout(20 * 1000, controller.signal).then(() => {
+        const err = new Error('timeout')
+        this.publishingDeferred?.reject(err)
+        this.publishingDeferred = null
+      }),
+      raceAbort(
+        controller.signal,
+        nanit.startStreaming(this.cameraUid, rtmpUrl),
+      ),
+    ]).finally(() => {
+      controller.abort()
+    })
     await this.publishingDeferred.promise
   }
 
