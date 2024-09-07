@@ -54,19 +54,7 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
       )
     }
     // this.state === state.STOPPED
-    this.startPromise = this._start(opts)
-      .catch((err) => {
-        delete this.startPromise
-        throw err
-      })
-      .then(() => {
-        this.started = true
-        delete this.startPromise
-        if (this.state === state.STOPPING) {
-          throw new Error('server started successfully, but is stopping now')
-        }
-      })
-    return this.startPromise
+    return super.start(opts)
   }
 
   protected async _start(opts?: WSMStartOptsType): Promise<void> {
