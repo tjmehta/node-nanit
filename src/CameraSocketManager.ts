@@ -49,8 +49,9 @@ export default class CameraSocketManager extends WebSocketManager {
 
   getConnectedWebSocketAndHandleMessage = memoizeConcurrent(async () => {
     const ws = await this.getConnectedWebSocket()
-    ws.removeListener('message', this.handleMessage)
-    ws.on('message', this.handleMessage)
+    if (ws.listenerCount('message', this.handleMessage) === 0) {
+      ws.on('message', this.handleMessage)
+    }
     return ws
   })
 
