@@ -3,8 +3,6 @@ import WebSocketManager from './WebSocketManager'
 import EventEmitter from 'events'
 import { client as proto } from './proto/nanit'
 import timeout from 'abortable-timeout'
-import raceAbort from 'race-abort'
-// import { Observable } from 'rxjs'
 import memoizeConcurrent from 'memoize-concurrent'
 
 type CameraSocketManagerOpts = {

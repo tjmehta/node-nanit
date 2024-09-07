@@ -1,4 +1,4 @@
-import AbstractStartable from 'abstract-startable'
+import AbstractStartable, { state } from 'abstract-startable'
 import { NanitManager } from './nanitManager'
 import envVar from 'env-var'
 import timeout from 'abortable-timeout'
@@ -68,7 +68,7 @@ export class CameraStreamManager extends AbstractStartable {
 
     // if already "stopped", dont care
     // ("stopping" should technically have donePublishingDeferred above)
-    if (this.state === 'STOPPED' || this.state === 'STOPPING') {
+    if (this.state === state.STOPPED || this.state === state.STOPPING) {
       console.warn('[StreamManager] publish: unexpected while stopped', {
         cameraUid: this.cameraUid,
         state: this.state,
@@ -193,7 +193,7 @@ export class CameraStreamManager extends AbstractStartable {
 
       console.log('[StreamManager] forceStart', { cameraUid: this.cameraUid })
 
-      if (this.state === 'STOPPING') {
+      if (this.state === state.STOPPING) {
         console.log('[StreamManager] forceStart: wait for stop to complete', {
           cameraUid: this.cameraUid,
         })
@@ -215,7 +215,7 @@ export class CameraStreamManager extends AbstractStartable {
     async () => {
       console.log('[StreamManager] forceStop', { cameraUid: this.cameraUid })
 
-      if (this.state === 'STARTING' && this.publishingDeferred) {
+      if (this.state === state.STARTING && this.publishingDeferred) {
         console.log(
           '[StreamManager] forceStop: starting, dont wait for publishing to begin',
           {
@@ -227,7 +227,7 @@ export class CameraStreamManager extends AbstractStartable {
         return this.stop({ force: true })
       }
 
-      if (this.state === 'STOPPING' && this.donePublishingDeferred) {
+      if (this.state === state.STOPPING && this.donePublishingDeferred) {
         console.log(
           '[StreamManager] forceStop: stopping, dont wait for publishing to finish',
           {
@@ -250,23 +250,30 @@ export class CameraStreamManager extends AbstractStartable {
   async _start() {
     const nanit = this.nanitManager.get()
     const rtmpUrl = CameraStreamManager.rtmpUrl(this.cameraUid)
-
     const controller = new AbortController()
+
     this.publishingDeferred = createDeferredPromise()
     await Promise.race([
       timeout(120 * 1000, controller.signal).then(() => {
         const err = new Error('timeout')
-        this.publishingDeferred = null
         throw err
       }),
-      raceAbort(
-        controller.signal,
-        nanit.startStreaming(this.cameraUid, rtmpUrl),
-      ),
-    ]).finally(() => {
-      controller.abort()
-    })
-    await this.publishingDeferred.promise
+      raceAbort(controller.signal, () => {
+        this.cameraStreamSubscriberIds.clear()
+        return nanit.startStreaming(this.cameraUid, rtmpUrl)
+      }).then(() => this.publishingDeferred?.promise),
+    ])
+      .catch((err) => {
+        console.error('[StreamManager] _start: startStreaming error', {
+          err,
+          cameraUid: this.cameraUid,
+        })
+        throw err
+      })
+      .finally(() => {
+        this.publishingDeferred = null
+        controller.abort()
+      })
   }
 
   async _stop({ force }: { force?: boolean } = { force: false }) {
@@ -274,20 +281,28 @@ export class CameraStreamManager extends AbstractStartable {
 
     const nanit = this.nanitManager.get()
     const rtmpUrl = CameraStreamManager.rtmpUrl(this.cameraUid)
+    const controller = new AbortController()
 
     if (!force) this.donePublishingDeferred = createDeferredPromise()
-    try {
-      this.cameraStreamSubscriberIds.clear()
-      await nanit.stopStreaming(this.cameraUid, rtmpUrl)
-    } catch (err) {
-      console.warn('[StreamManager] _stop: stopStreaming error', {
-        err,
-        cameraUid: this.cameraUid,
+    await Promise.race([
+      timeout(120 * 1000, controller.signal).then(() => {
+        const err = new Error('timeout')
+        throw err
+      }),
+      raceAbort(controller.signal, () => {
+        this.cameraStreamSubscriberIds.clear()
+        return nanit.stopStreaming(this.cameraUid, rtmpUrl)
+      }).then(() => this.donePublishingDeferred?.promise),
+    ])
+      .catch((err) => {
+        console.warn('[StreamManager] _stop: stopStreaming error', {
+          err,
+          cameraUid: this.cameraUid,
+        })
       })
-    }
-
-    if (this.donePublishingDeferred) {
-      await this.donePublishingDeferred.promise
-    }
+      .finally(() => {
+        this.donePublishingDeferred = null
+        controller.abort()
+      })
   }
 }
