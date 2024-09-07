@@ -99,10 +99,11 @@
     "node-media-server": "^2.7.0",
     "p-defer": "^3.0.0",
     "protobufjs": "^7.2.6",
+    "race-abort": "^3.0.3",
     "rxjs": "^7.8.1",
     "simple-api-client": "^4.0.5",
     "timeout-then": "^2.0.0",
     "uuid": "^10.0.0",
-    "ws": "^8.16.0"
+    "ws": "^8.18.0"
   }
 }

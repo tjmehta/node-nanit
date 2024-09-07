@@ -53,6 +53,9 @@ dependencies:
   protobufjs:
     specifier: ^7.2.6
     version: 7.2.6
+  race-abort:
+    specifier: ^3.0.3
+    version: 3.0.3
   rxjs:
     specifier: ^7.8.1
     version: 7.8.1
@@ -66,8 +69,8 @@ dependencies:
     specifier: ^10.0.0
     version: 10.0.0
   ws:
-    specifier: ^8.16.0
-    version: 8.16.0
+    specifier: ^8.18.0
+    version: 8.18.0
 
 devDependencies:
   '@babel/core':
@@ -5090,7 +5093,7 @@ packages:
       lodash: 4.17.21
       minimist: 1.2.8
       mkdirp: 2.1.6
-      ws: 8.16.0
+      ws: 8.18.0
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -6291,19 +6294,6 @@ packages:
     peerDependencies:
       bufferutil: ^4.0.1
       utf-8-validate: ^5.0.2
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-    dev: false
-
-  /ws@8.16.0:
-    resolution: {integrity: sha512-HS0c//TP7Ina87TfiPUz1rQzMhHrl/SG2guqRcTOIUYD2q8uhUdNHZYJUaQ8aTGPzCh+c6oawMKW35nFl1dxyQ==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
     peerDependenciesMeta:
       bufferutil:
         optional: true

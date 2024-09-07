@@ -3,7 +3,9 @@ import WebSocketManager from './WebSocketManager'
 import EventEmitter from 'events'
 import { client as proto } from './proto/nanit'
 import timeout from 'abortable-timeout'
+import raceAbort from 'race-abort'
 // import { Observable } from 'rxjs'
+import memoizeConcurrent from 'memoize-concurrent'
 
 type CameraSocketManagerOpts = {
   ws: ConstructorParameters<typeof WebSocketManager>[2]
@@ -28,20 +30,14 @@ export default class CameraSocketManager extends WebSocketManager {
 
   protected async _start(opts?: StartOptsType): Promise<void> {
     await super._start(opts)
-    const ws = await this.getConnectedWebSocket()
-
-    ws.on('message', (data: Buffer) => {
-      const response = proto.Response.decode(new Uint8Array(data))
-      console.log('CameraSocketManager: response', response)
-      this.responseEmitter.emit(response.requestId.toString(), response)
-    })
+    await this.getConnectedWebSocketAndHandleMessage()
   }
 
   protected async _stop(): Promise<void> {
     await Promise.all(
       [...this.activeStreamUrls].map((rtmpUrl) => this.stopStreaming(rtmpUrl)),
     )
-    this.ws?.removeAllListeners()
+    this.ws?.removeAllListeners('message')
     this.responseEmitter.removeAllListeners()
 
     await super._stop()
@@ -51,16 +47,31 @@ export default class CameraSocketManager extends WebSocketManager {
     return ++this.lastRequestId
   }
 
+  getConnectedWebSocketAndHandleMessage = memoizeConcurrent(async () => {
+    const ws = await this.getConnectedWebSocket()
+    ws.removeListener('message', this.handleMessage)
+    ws.on('message', this.handleMessage)
+    return ws
+  })
+
+  private handleMessage = (data: Buffer) => {
+    const response = proto.Response.decode(new Uint8Array(data))
+    console.log('CameraSocketManager: response', response)
+    this.responseEmitter.emit(response.requestId.toString(), response)
+  }
+
   async sendRequest<Response extends proto.Response>(
     request: proto.Request,
     { timeoutMs }: { timeoutMs: number } = { timeoutMs: this.requestTimeoutMs },
   ): Promise<Response> {
-    const controller = new AbortController()
-    const ws = await this.getConnectedWebSocket()
+    const ws = await this.getConnectedWebSocketAndHandleMessage()
     const message = proto.Message.create({
       type: proto.Message.Type.REQUEST,
       request,
     })
+
+    const controller = new AbortController()
+    const requestIdString = request.id.toString()
 
     return Promise.race<Response>([
       timeout(timeoutMs, controller.signal).then(() => {
@@ -68,13 +79,9 @@ export default class CameraSocketManager extends WebSocketManager {
       }) as Promise<never>,
       // request promise
       new Promise<Response>((resolve, reject) => {
-        const requestIdString = request.id.toString()
-
-        // handle abort
-        controller.signal.addEventListener('abort', () => {
-          this.responseEmitter.removeAllListeners(requestIdString)
-          reject(new Error('aborted'))
-        })
+        controller.signal.addEventListener('aborted', () =>
+          this.responseEmitter.removeListener(requestIdString, resolve),
+        )
         // handle response
         this.responseEmitter.once(requestIdString, resolve)
         // send request
@@ -82,10 +89,12 @@ export default class CameraSocketManager extends WebSocketManager {
           if (err != null) reject(err)
         })
       }),
-    ])
+    ]).finally(() => {
+      controller.abort()
+    })
   }
 
-  async startStreaming(rtmpUrl: string): Promise<{}> {
+  startStreaming = memoizeConcurrent(async (rtmpUrl: string): Promise<{}> => {
     console.log('CameraSocketManager: requestStreaming: rtmpUrl', rtmpUrl)
     const request = proto.Request.create({
       id: this.generateRequestId(),
@@ -105,8 +114,9 @@ export default class CameraSocketManager extends WebSocketManager {
     const payload = res.toJSON()
 
     return payload
-  }
-  async stopStreaming(rtmpUrl: string): Promise<{}> {
+  })
+
+  stopStreaming = memoizeConcurrent(async (rtmpUrl: string): Promise<{}> => {
     console.log('CameraSocketManager: stopStreaming: rtmpUrl', rtmpUrl)
     const request = proto.Request.create({
       id: this.generateRequestId(),
@@ -132,5 +142,5 @@ export default class CameraSocketManager extends WebSocketManager {
     const payload = res.toJSON()
 
     return payload
-  }
+  })
 }
