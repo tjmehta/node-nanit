@@ -37,15 +37,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tjmehta/node-module-template.git"
+    "url": "git+https://github.com/tjmehta/node-nanit-camera.git"
   },
   "keywords": [],
   "author": "Tejesh Mehta",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/tjmehta/node-module-template/issues"
+    "url": "https://github.com/tjmehta/node-nanit-camera/issues"
   },
-  "homepage": "https://github.com/tjmehta/node-module-template#readme",
+  "homepage": "https://github.com/tjmehta/node-nanit-camera#readme",
   "devDependencies": {
     "@babel/core": "^7.24.0",
     "@babel/preset-env": "^7.24.0",

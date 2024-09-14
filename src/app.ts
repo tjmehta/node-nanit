@@ -1,25 +1,26 @@
-import AppServer from './server/AppServer'
+import AppServer from "./server/AppServer";
 
-const appServer = new AppServer()
+const appServer = new AppServer();
 
 appServer
   .start()
   .then(() => {
-    console.log('AppServer started')
+    console.log("NanitService started");
   })
   .catch((err) => {
-    console.error(err)
-    process.exit(1)
-  })
+    console.error("NanitService start failed!", { err });
+    process.exit(1);
+  });
 
-process.on('SIGINT', () => {
+process.on("SIGINT", () => {
   appServer
     .stop()
     .then(() => {
-      process.exit(0)
+      console.log("NanitService stopped");
+      process.exit(0);
     })
     .catch((err) => {
-      console.error(err)
-      process.exit(1)
-    })
-})
+      console.error("NanitService stop failed!", { err });
+      process.exit(1);
+    });
+});
