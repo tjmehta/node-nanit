@@ -1,5 +1,5 @@
 {
-  "name": "node-module-template",
+  "name": "nanit-camera",
   "version": "0.8.1",
   "description": "Description",
   "main": "dist/cjs/index.cjs",
