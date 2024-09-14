@@ -3,11 +3,11 @@ import AbstractStartable, {
   state,
   StopOptsType,
 } from 'abstract-startable'
-import { NanitManager } from './nanitManager'
-import envVar from 'env-var'
 import timeout from 'abortable-timeout'
 import memoizeConcurrent from 'memoize-concurrent'
 import createDeferredPromise, { DeferredPromise } from 'p-defer'
+import envVar from 'env-var'
+import Nanit from '..'
 const { get } = envVar
 
 const RTMP_HOST = get('RTMP_HOST').required().asString()
@@ -16,12 +16,13 @@ const NANIT_CAMERA_STOP_DELAY = get('NANIT_CAMERA_STOP_DELAY')
   .default(60 * 1000)
   .asIntPositive()
 
-type CSMStartOptsType = StartOptsType & {
-  force?: boolean
+enum Op {
+  Start,
+  Stop,
 }
 
-export class CameraStreamManager extends AbstractStartable<CSMStartOptsType> {
-  private nanitManager: NanitManager
+export class CameraStreamManager extends AbstractStartable<StartOptsType> {
+  private nanit: Nanit
   private cameraUid: string
   private publishingDeferred: DeferredPromise<void> | null = null
   private donePublishingDeferred: DeferredPromise<void> | null = null
@@ -33,9 +34,9 @@ export class CameraStreamManager extends AbstractStartable<CSMStartOptsType> {
     return `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${cameraUid}`
   }
 
-  constructor(nanitManager: NanitManager, cameraUid: string) {
+  constructor(nanit: Nanit, cameraUid: string) {
     super()
-    this.nanitManager = nanitManager
+    this.nanit = nanit
     this.cameraUid = cameraUid
   }
 
@@ -86,7 +87,6 @@ export class CameraStreamManager extends AbstractStartable<CSMStartOptsType> {
         cameraUid: this.cameraUid,
       })
       this.publishingDeferred.resolve()
-      this.publishingDeferred = null
       return
     }
 
@@ -109,7 +109,6 @@ export class CameraStreamManager extends AbstractStartable<CSMStartOptsType> {
         cameraUid: this.cameraUid,
       })
       this.donePublishingDeferred.resolve()
-      this.donePublishingDeferred = null
       return
     }
 
@@ -152,16 +151,16 @@ export class CameraStreamManager extends AbstractStartable<CSMStartOptsType> {
       })
   }
 
-  stopForever = memoizeConcurrent(
-    async () => {
-      console.log('[StreamManager] stopForever', { cameraUid: this.cameraUid })
-      this.stoppedForever = true
-      return this.forceStop()
-    },
-    {
-      cacheKey: () => 'all',
-    },
-  )
+  // stopForever = memoizeConcurrent(
+  //   async () => {
+  //     console.log('[StreamManager] stopForever', { cameraUid: this.cameraUid })
+  //     this.stoppedForever = true
+  //     return this.forceStop()
+  //   },
+  //   {
+  //     cacheKey: () => 'all',
+  //   },
+  // )
 
   private delayedStop = memoizeConcurrent(
     async () => {
@@ -220,7 +219,7 @@ export class CameraStreamManager extends AbstractStartable<CSMStartOptsType> {
     },
   )
 
-  async start(opts?: CSMStartOptsType): Promise<void> {
+  async start(opts?: StartOptsType): Promise<void> {
     this.cancelDelayedStop('start')
     console.log('[StreamManager] start', {
       cameraUid: this.cameraUid,
@@ -228,23 +227,15 @@ export class CameraStreamManager extends AbstractStartable<CSMStartOptsType> {
       opts,
     })
 
-    if (this.state === state.STARTED) return
-    if (this.state === state.STARTING) return this.startPromise
-    if (this.state === state.STOPPING) {
-      if (opts?.force) {
-        // stop and start immediately
-        return this.stop({ force: true }).then(() => super.start(opts))
-      }
-      return Promise.reject(
-        new Error('cannot start server, server is stopping'),
-      )
+    if (opts?.force && this.donePublishingDeferred) {
+      this.donePublishingDeferred.reject(new Error('aborted'))
     }
-    // this.state === state.STOPPED
+
     return super.start(opts)
   }
 
-  async _start(opts?: CSMStartOptsType) {
-    const nanit = this.nanitManager.get()
+  async _start(opts?: StartOptsType) {
+    const nanit = this.nanit
     const rtmpUrl = CameraStreamManager.rtmpUrl(this.cameraUid)
     const controller = new AbortController()
 
@@ -287,40 +278,15 @@ export class CameraStreamManager extends AbstractStartable<CSMStartOptsType> {
       opts,
     })
 
-    if (this.state === state.STOPPED) return
-    if (this.state === state.STOPPING) {
-      if (opts?.force) {
-        console.log('[StreamManager] stop: force stop', {
-          cameraUid: this.cameraUid,
-          state: this.state,
-        })
-        if (this.donePublishingDeferred) {
-          this.donePublishingDeferred.resolve()
-        }
-        return this.stopPromise
-      }
-      return this.stopPromise
-    }
-    // this.state === state.STARTING
-    // this.state === state.STARTED
-    const stopPromise = super.stop(opts)
-
-    if (opts?.force) {
-      console.log('[StreamManager] stop: force stop', {
-        cameraUid: this.cameraUid,
-        state: this.state,
-      })
-      if (this.publishingDeferred) {
-        this.publishingDeferred.reject(new Error('force stop'))
-        this.publishingDeferred = null
-      }
+    if (opts?.force && this.publishingDeferred) {
+      this.publishingDeferred.reject(new Error('aborted'))
     }
 
-    return stopPromise
+    return super.stop(opts)
   }
 
   async _stop(opts?: StopOptsType) {
-    const nanit = this.nanitManager.get()
+    const nanit = this.nanit
     const rtmpUrl = CameraStreamManager.rtmpUrl(this.cameraUid)
     const controller = new AbortController()
 
@@ -332,11 +298,19 @@ export class CameraStreamManager extends AbstractStartable<CSMStartOptsType> {
     return nanit
       .stopStreaming(this.cameraUid, rtmpUrl)
       .then(() => {
-        console.log('[StreamManager] _stop: stopStreaming success', {
+        console.log('[StreamManager] _stop: stopStreaming request success', {
           cameraUid: this.cameraUid,
         })
       })
       .then(() => this.donePublishingDeferred?.promise)
+      .then(() => {
+        console.log(
+          '[StreamManager] _stop: stopStreaming donePublishing success',
+          {
+            cameraUid: this.cameraUid,
+          },
+        )
+      })
       .catch((err) => {
         console.warn('[StreamManager] _stop: stopStreaming error', {
           err,

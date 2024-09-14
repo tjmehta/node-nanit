@@ -15,7 +15,7 @@ import envVar from 'env-var'
 import { CameraMessage, CameraMessageType } from '../validateBabyMessage'
 import { Subscription } from 'rxjs'
 import mqtt from 'async-mqtt'
-import { CameraStreamManager } from './CameraStreamManager'
+// import { CameraStreamManager } from './CameraStreamManager'
 const { get } = envVar
 
 const HTTP_PORT = get('HTTP_PORT').default(3000).asPortNumber()
@@ -42,8 +42,12 @@ function mqttTopic(cameraUid: string): string {
 }
 
 class AppServer extends AbstractStartable {
-  private cameraStreamManagers = new Map<string, CameraStreamManager>()
-  private cameraMessageSubscriptions = new Map<string, Subscription>()
+  // private cameraStreamManagers = new Map<string, CameraStreamManager>()
+  private cameraEventsSubscriptions = new Map<string, Subscription>()
+  private cameraStreams = new Map<
+    string,
+    { stopPromise?: Promise<void>; stopTimeout?: NodeJS.Timeout }
+  >()
   private nanitManager = nanitManager
   private mqtt: mqtt.AsyncMqttClient | null = null
   private httpServer: Server<
@@ -263,13 +267,14 @@ class AppServer extends AbstractStartable {
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
 
-      const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
-
-      if (cameraStreamManager == null) {
-        console.warn(`[RTMP] prePublish ${path}: unexpected!`, { id })
+      if (this.cameraStreams.has(cameraUid)) {
+        console.error(`[RTMP] prePublish ${path}: unexpected!`, { id })
         return
       }
 
+      this.cameraStreams.set(cameraUid, {})
+      const cameraStreamManager =
+        this.nanitManager.getCameraStreamManager(cameraUid)
       cameraStreamManager.publish()
     })
 
@@ -278,13 +283,14 @@ class AppServer extends AbstractStartable {
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
 
-      const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
-
-      if (cameraStreamManager == null) {
+      if (!this.cameraStreams.has(cameraUid)) {
         console.warn(`[RTMP] donePublish ${path}: unexpected!`, { id })
         return
       }
 
+      this.cameraStreams.delete(cameraUid)
+      const cameraStreamManager =
+        this.nanitManager.getCameraStreamManager(cameraUid)
       cameraStreamManager.donePublish()
     })
 
@@ -293,26 +299,9 @@ class AppServer extends AbstractStartable {
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
 
-      let cameraStreamManager =
-        this.cameraStreamManagers.get(cameraUid) ??
-        new CameraStreamManager(this.nanitManager, cameraUid)
-
-      this.cameraStreamManagers.set(cameraUid, cameraStreamManager)
-
-      // add subscriber, and start streaming if not already streaming
-      cameraStreamManager
-        .addSubscriber(id)
-        .then(() => {
-          console.log('[RTMP] prePlay: addSubscriber: success', {
-            cameraUid,
-          })
-        })
-        .catch((err) => {
-          console.log('[RTMP] prePlay: addSubscriber: error', {
-            cameraUid,
-            err,
-          })
-        })
+      const cameraStreamManager =
+        this.nanitManager.getCameraStreamManager(cameraUid)
+      cameraStreamManager.addSubscriber(id)
     })
 
     nms.on('donePlay', async (id, path, args) => {
@@ -320,29 +309,9 @@ class AppServer extends AbstractStartable {
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
 
-      const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
-
-      if (cameraStreamManager == null) {
-        console.log('[RTMP] donePlay: cameraStreamManager not found', {
-          cameraUid,
-        })
-        return
-      }
-
-      // remove subscriber, and possibly stop the stream
-      cameraStreamManager
-        .deleteSubscriber(id)
-        .then(() => {
-          console.log('[RTMP] prePlay: deleteSubscriber: success', {
-            cameraUid,
-          })
-        })
-        .catch((err) => {
-          console.log('[RTMP] prePlay: deleteSubscriber: error', {
-            cameraUid,
-            err,
-          })
-        })
+      const cameraStreamManager =
+        this.nanitManager.getCameraStreamManager(cameraUid)
+      cameraStreamManager.deleteSubscriber(id)
     })
 
     this.nms = nms
@@ -366,7 +335,7 @@ class AppServer extends AbstractStartable {
     cameras.forEach((camera) => {
       const cameraUid = camera.uid
       const babyUid = camera.babyUid
-      if (this.cameraMessageSubscriptions.has(camera.uid)) {
+      if (this.cameraEventsSubscriptions.has(camera.uid)) {
         console.log('[RTMP] camera message subscription already exists', {
           cameraUid,
         })
@@ -399,33 +368,38 @@ class AppServer extends AbstractStartable {
               babyUid,
               err,
             })
-            this.cameraMessageSubscriptions.delete(cameraUid)
+            this.cameraEventsSubscriptions.delete(cameraUid)
           },
           complete: () => {
             console.log('[RTMP] camera message: complete', {
               cameraUid,
               babyUid,
             })
-            this.cameraMessageSubscriptions.delete(cameraUid)
+            this.cameraEventsSubscriptions.delete(cameraUid)
           },
         })
 
-      this.cameraMessageSubscriptions.set(cameraUid, subscription)
+      this.cameraEventsSubscriptions.set(cameraUid, subscription)
     })
   }
 
   private stopPollingCameraMessages() {
-    this.cameraMessageSubscriptions.forEach((subscription) =>
+    this.cameraEventsSubscriptions.forEach((subscription) =>
       subscription.unsubscribe(),
     )
-    this.cameraMessageSubscriptions.clear()
+    this.cameraEventsSubscriptions.clear()
   }
 
   private async stopStreamingAll() {
-    this.cameraStreamManagers.forEach((cameraStreamManager) => {
-      cameraStreamManager.stopForever()
-    })
-    this.cameraStreamManagers.clear()
+    const keys = [...this.cameraStreams.keys()]
+    this.cameraStreams.clear()
+    await Promise.all(
+      keys.map((cameraUid) => {
+        const cameraStreamManager =
+          this.nanitManager.getCameraStreamManager(cameraUid)
+        return cameraStreamManager.stop({ force: true })
+      }),
+    )
   }
 }
 

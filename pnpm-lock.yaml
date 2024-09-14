@@ -18,8 +18,8 @@ dependencies:
     specifier: ^2.0.11
     version: 2.0.11
   abstract-startable:
-    specifier: ^3.1.0
-    version: 3.1.0
+    specifier: ^4.0.0
+    version: 4.0.0
   async-mqtt:
     specifier: ^2.6.3
     version: 2.6.3
@@ -2431,8 +2431,10 @@ packages:
     resolution: {integrity: sha512-/GkcNptx1bSZ5yExC9WJRUm1TIXNFRTC++mpCXizoA+he+16ZZl98dMA8vXagMKfs8AKsl0kY8qEf5mioTC44Q==}
     dev: false
 
-  /abstract-startable@3.1.0:
-    resolution: {integrity: sha512-JdMMzz8BaWsCbaM6zElzEM0qY5ll0aFCEB5HbTtPC1pvZUtAqKNAaCSwp/aMZi/IK3dtKj/saV+bj8jddr/+2A==}
+  /abstract-startable@4.0.0:
+    resolution: {integrity: sha512-rORNevuzaoRSZQZhZUTVwFcOSz2VSl4mXKUY8TuJZtVtRZxlMbq4/nABKI7QUdzwKgE0sbeofb8Zeqor9o04CQ==}
+    dependencies:
+      p-defer: 4.0.1
     dev: false
 
   /accepts@1.3.8:
@@ -5200,6 +5202,11 @@ packages:
   /p-defer@3.0.0:
     resolution: {integrity: sha512-ugZxsxmtTln604yeYd29EGrNhazN2lywetzpKhfmQjW/VJmhpDmWbiX+h0zL8V91R0UXkhb3KtPmyq9PZw3aYw==}
     engines: {node: '>=8'}
+
+  /p-defer@4.0.1:
+    resolution: {integrity: sha512-Mr5KC5efvAK5VUptYEIopP1bakB85k2IWXaRC0rsh1uwn1L6M0LVml8OIQ4Gudg4oyZakf7FmeRLkMMtZW1i5A==}
+    engines: {node: '>=12'}
+    dev: false
 
   /p-limit@2.3.0:
     resolution: {integrity: sha512-//88mFWSJx8lxCzwdAABTJL2MyWB12+eIY7MDL2SqLmAkeKU9qxRvWuSyTjm3FUmpBEMuFfckAIqEaVGUDxb6w==}

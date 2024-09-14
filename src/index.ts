@@ -444,7 +444,7 @@ export default class Nanit extends ApiClient {
         this.cameraSocketManagers.get(cameraUID) ??
         new CameraSocketManager(cameraUID, {
           ws: {
-            handshakeTimeout: 1000 * 10,
+            handshakeTimeout: NANIT_REQUEST_TIMEOUT,
             headers: {
               Authorization: `Bearer ${
                 this.sessionCache.value.token ??
@@ -505,7 +505,7 @@ export default class Nanit extends ApiClient {
 
       cameraSocketManager = new CameraSocketManager(cameraUID, {
         ws: {
-          handshakeTimeout: 1000 * 10,
+          handshakeTimeout: NANIT_REQUEST_TIMEOUT,
           headers: {
             Authorization: `Bearer ${
               this.sessionCache.value.token ??

@@ -21,11 +21,7 @@ export enum ReadyState {
   CLOSED = WS.CLOSED,
 }
 
-type WSMStartOptsType = StartOptsType & {
-  force?: boolean
-}
-
-export default class WebSocketManager extends AbstractStartable<WSMStartOptsType> {
+export default class WebSocketManager extends AbstractStartable<StartOptsType> {
   private wsArgs: ConstructorParameters<typeof WS>
   private handleClose: (() => void) | undefined | null
   ws: WebSocketType | undefined | null
@@ -41,23 +37,7 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
     this.headers = headersParentArg?.headers ?? {}
   }
 
-  async start(opts?: WSMStartOptsType): Promise<void> {
-    if (this.state === state.STARTED) return
-    if (this.state === state.STARTING) return this.startPromise
-    if (this.state === state.STOPPING) {
-      if (opts?.force) {
-        // stop and start immediately
-        return this.stop({ force: true }).then(() => super.start(opts))
-      }
-      return Promise.reject(
-        new Error('cannot start server, server is stopping'),
-      )
-    }
-    // this.state === state.STOPPED
-    return super.start(opts)
-  }
-
-  protected async _start(opts?: WSMStartOptsType): Promise<void> {
+  protected async _start(opts?: StartOptsType): Promise<void> {
     try {
       await new Promise<void>((resolve, reject) => {
         console.log('WS: start', this.wsArgs)
@@ -113,29 +93,6 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
         throw statusErr
       }
     }
-  }
-
-  async stop(opts?: StopOptsType): Promise<void> {
-    if (this.state === state.STOPPED) return
-    if (this.state === state.STOPPING) {
-      if (opts?.force) {
-        this.ws = null
-        return
-      }
-      return this.stopPromise
-    }
-    // this.state === state.STARTING
-    // this.state === state.STARTED
-    if (this.state === state.STARTING) {
-      if (opts?.force) {
-        this.ws?.close()
-        this.ws = null
-        return
-      }
-      return super.stop(opts)
-    }
-
-    return super.stop(opts)
   }
 
   protected async _stop(

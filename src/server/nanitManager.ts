@@ -4,6 +4,7 @@ import path from 'path'
 import Nanit, { CredentialsType, NanitAuthStatus } from '../index'
 import assert from 'assert'
 import { StatusCodeError } from 'simple-api-client'
+import { CameraStreamManager } from './CameraStreamManager'
 
 enum NanitAuthCacheKeys {
   SESSION = 'session',
@@ -71,23 +72,23 @@ class NanitAuthCache {
 
 export class NanitManager {
   private nanit: Nanit = new Nanit()
-  private nanitCache: NanitAuthCache = new NanitAuthCache()
+  private authCache: NanitAuthCache = new NanitAuthCache()
 
   constructor() {
     // initialize nanit from cache if it exists
-    const credentials = this.nanitCache.getSync(NanitAuthCacheKeys.CREDENTIALS)
+    const credentials = this.authCache.getSync(NanitAuthCacheKeys.CREDENTIALS)
 
     if (credentials != null) {
       this.nanit = new Nanit({
         credentials,
-        session: this.nanitCache.getSync(NanitAuthCacheKeys.SESSION),
+        session: this.authCache.getSync(NanitAuthCacheKeys.SESSION),
       })
     }
   }
 
   async login(credentials: CredentialsType) {
-    await this.nanitCache.clear()
-    await this.nanitCache.set(NanitAuthCacheKeys.CREDENTIALS, credentials)
+    await this.authCache.clear()
+    await this.authCache.set(NanitAuthCacheKeys.CREDENTIALS, credentials)
 
     const nanit = (this.nanit = new Nanit({
       credentials,
@@ -95,7 +96,7 @@ export class NanitManager {
     await nanit.login()
 
     if (nanit.auth.status === NanitAuthStatus.AUTHED) {
-      await this.nanitCache.set(NanitAuthCacheKeys.SESSION, nanit.auth.session)
+      await this.authCache.set(NanitAuthCacheKeys.SESSION, nanit.auth.session)
     }
 
     return this.nanit
@@ -114,7 +115,7 @@ export class NanitManager {
     auth = nanit.auth
 
     if (auth.status === NanitAuthStatus.AUTHED) {
-      await this.nanitCache.set(NanitAuthCacheKeys.SESSION, auth.session)
+      await this.authCache.set(NanitAuthCacheKeys.SESSION, auth.session)
     }
 
     return auth
@@ -135,23 +136,27 @@ export class NanitManager {
     }
 
     if (nanit.auth.status === NanitAuthStatus.AUTHED) {
-      await this.nanitCache.set(NanitAuthCacheKeys.SESSION, nanit.auth.session)
+      await this.authCache.set(NanitAuthCacheKeys.SESSION, nanit.auth.session)
     }
 
     return this.nanit
   }
 
   async logout() {
-    await this.nanitCache.clear()
+    await this.authCache.clear()
     this.nanit = new Nanit()
   }
 
   async clearSession() {
-    await this.nanitCache.delete(NanitAuthCacheKeys.SESSION)
+    await this.authCache.delete(NanitAuthCacheKeys.SESSION)
   }
 
   get() {
     return this.nanit
+  }
+
+  getCameraStreamManager(cameraUid: string) {
+    return new CameraStreamManager(this.nanit, cameraUid)
   }
 }
 const nanitManager = new NanitManager()
