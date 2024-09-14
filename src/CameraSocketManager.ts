@@ -1,10 +1,11 @@
 import { StartOptsType, state, StopOptsType } from 'abstract-startable'
-import WebSocketManager, { ReadyState, WebSocketType } from './WebSocketManager'
+import WebSocketManager, { WebSocketType } from './WebSocketManager'
 import EventEmitter from 'events'
 import { client as proto } from './proto/nanit'
 import timeout from 'abortable-timeout'
 import memoizeConcurrent from 'memoize-concurrent'
 import BaseError from 'baseerr'
+import { StatusCodeError } from 'simple-api-client'
 
 type CameraSocketManagerOpts = {
   ws: ConstructorParameters<typeof WebSocketManager>[2]
@@ -159,6 +160,14 @@ export default class CameraSocketManager extends WebSocketManager {
       rtmpUrl,
       res: res.toJSON(),
     })
+    StatusCodeError.assert<{ status: number; message: string }>(
+      res.statusCode !== 403,
+      'startStreaming request failed' as string,
+      {
+        status: res.statusCode,
+        message: res.statusMessage,
+      },
+    )
     this.activeStreamUrls.add(rtmpUrl)
 
     return res.toJSON()
