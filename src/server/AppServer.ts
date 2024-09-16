@@ -245,6 +245,16 @@ class AppServer extends AbstractStartable {
     await this.startPollingCameraMessages();
   }
 
+  private addSubscriber(cameraUid: string, id: string) {
+    const cameraStreamManager =
+      this.cameraStreamManagers.get(cameraUid) ??
+      new CameraStreamManager(this.nanitManager, cameraUid);
+
+    this.cameraStreamManagers.set(cameraUid, cameraStreamManager);
+
+    return cameraStreamManager.addSubscriber(id);
+  }
+
   private async startRtmpServer() {
     const nms = new NodeMediaServer({
       rtmp: {
@@ -296,15 +306,7 @@ class AppServer extends AbstractStartable {
       const cameraUid = path.split("/").pop() ?? "";
       assert(cameraUid, "cameraUid required");
 
-      let cameraStreamManager =
-        this.cameraStreamManagers.get(cameraUid) ??
-        new CameraStreamManager(this.nanitManager, cameraUid);
-
-      this.cameraStreamManagers.set(cameraUid, cameraStreamManager);
-
-      // add subscriber, and start streaming if not already streaming
-      cameraStreamManager
-        .addSubscriber(id)
+      this.addSubscriber(cameraUid, id)
         .then(() => {
           console.log("[RTMP] prePlay: addSubscriber: success", {
             cameraUid,
@@ -391,6 +393,22 @@ class AppServer extends AbstractStartable {
               type: message.type,
             });
             // publish "SOUND" or "MOTION"
+            const subId = "EVENT"
+            this.addSubscriber(cameraUid, subId)
+              .then(() => {
+                console.log("[RTMP] camera message: addSubscriber: success", {
+                  cameraUid,
+                });
+              })
+              .catch((err) => {
+                console.log("[RTMP] camera message: addSubscriber: error", {
+                  cameraUid,
+                  err,
+                });
+              });
+            const cameraStreamManager = this.cameraStreamManagers.get(cameraUid);
+            process.nextTick(() => cameraStreamManager?.deleteSubscriber(subId))
+
             this.mqtt?.publish(
               mqttTopic(cameraUid),
               message.type.toUpperCase() as CameraMessageType
