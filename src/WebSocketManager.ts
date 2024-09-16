@@ -1,8 +1,4 @@
-import AbstractStartable, {
-  StartOptsType,
-  state,
-  StopOptsType,
-} from 'abstract-startable'
+import AbstractStartable, { StartOptsType, state } from 'abstract-startable'
 import WS from 'ws'
 import memoizeConcurrent from 'memoize-concurrent'
 import { StatusCodeError as SimpleApiClientStatusCodeError } from 'simple-api-client'
@@ -39,22 +35,6 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
     )
     // @ts-ignore
     this.headers = headersParentArg?.headers ?? {}
-  }
-
-  async start(opts?: WSMStartOptsType): Promise<void> {
-    if (this.state === state.STARTED) return
-    if (this.state === state.STARTING) return this.startPromise
-    if (this.state === state.STOPPING) {
-      if (opts?.force) {
-        // stop and start immediately
-        return this.stop({ force: true }).then(() => super.start(opts))
-      }
-      return Promise.reject(
-        new Error('cannot start server, server is stopping'),
-      )
-    }
-    // this.state === state.STOPPED
-    return super.start(opts)
   }
 
   protected async _start(opts?: WSMStartOptsType): Promise<void> {
@@ -115,38 +95,23 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
     }
   }
 
-  async stop(opts?: StopOptsType): Promise<void> {
-    if (this.state === state.STOPPED) return
-    if (this.state === state.STOPPING) {
-      if (opts?.force) {
-        this.ws = null
-        return
-      }
-      return this.stopPromise
-    }
-    // this.state === state.STARTING
-    // this.state === state.STARTED
-    if (this.state === state.STARTING) {
-      if (opts?.force) {
-        this.ws?.close()
-        this.ws = null
-        return
-      }
-      return super.stop(opts)
-    }
-
-    return super.stop(opts)
-  }
-
   protected async _stop(
     { force }: { force?: boolean } = { force: false },
   ): Promise<void> {
+    if (force) {
+      const ws = this.ws
+      this.ws = null
+      ws?.close()
+      return
+    }
+
     await new Promise<void>((resolve, reject) => {
       if (this.ws == null) {
         console.log('WS: stop: already gone')
         return resolve()
       }
 
+      // get handshakeTimeout and use it as closeTimeout
       let handshakeTimeout = DEFAULT_HANDSHAKE_TIMEOUT
       this.wsArgs.some((arg) => {
         if (
