@@ -104,6 +104,7 @@ export class CameraStreamManager extends AbstractStartable {
       // done publishing as expected, after stop was calleds
       console.log('[StreamManager] donePublish: resolve', {
         cameraUid: this.cameraUid,
+        subscriberCount: this.cameraStreamSubscriberIds.size,
       })
       this.donePublishingDeferred.resolve()
       this.donePublishingDeferred = null
@@ -116,6 +117,7 @@ export class CameraStreamManager extends AbstractStartable {
       console.warn('[StreamManager] donePublish: unexpected while stopped', {
         cameraUid: this.cameraUid,
         state: this.state,
+        subscriberCount: this.cameraStreamSubscriberIds.size,
       })
       return
     }
@@ -193,6 +195,7 @@ export class CameraStreamManager extends AbstractStartable {
         `[StreamManager] ${logKey ?? 'cancelDelayedStop'}: cancel delayed stop`,
         {
           cameraUid: this.cameraUid,
+          subscriberCount: this.cameraStreamSubscriberIds.size,
         },
       )
       this.delayedStopController.abort()
@@ -209,6 +212,7 @@ export class CameraStreamManager extends AbstractStartable {
   async _start(opts?: StartOptsType) {
     console.log('[StreamManager] _start: startStreaming', {
       cameraUid: this.cameraUid,
+      subscriberCount: this.cameraStreamSubscriberIds.size,
     })
 
     try {
@@ -244,7 +248,9 @@ export class CameraStreamManager extends AbstractStartable {
   async _stop(opts?: StopOptsType) {
     console.log('[StreamManager] _stop: stopStreaming', {
       cameraUid: this.cameraUid,
+      subscriberCount: this.cameraStreamSubscriberIds.size,
     })
+    this.cameraStreamSubscriberIds.clear()
     try {
       const nanit = this.nanitManager.get()
       const rtmpUrl = CameraStreamManager.rtmpUrl(this.cameraUid)
@@ -268,7 +274,6 @@ export class CameraStreamManager extends AbstractStartable {
         cameraUid: this.cameraUid,
       })
     } finally {
-      this.cameraStreamSubscriberIds.clear()
       this.donePublishingDeferred = null
     }
   }
