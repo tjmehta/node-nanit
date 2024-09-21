@@ -2,7 +2,6 @@ import { StartOptsType, state, StopOptsType } from 'abstract-startable'
 import WebSocketManager, { ReadyState, WebSocketType } from './WebSocketManager'
 import EventEmitter from 'events'
 import { client as proto } from './proto/nanit'
-import timeout from 'abortable-timeout'
 import memoizeConcurrent from 'memoize-concurrent'
 import BaseError from 'baseerr'
 
@@ -86,6 +85,7 @@ export default class CameraSocketManager extends WebSocketManager {
     },
   ): Promise<Response> {
     let ws: WebSocketType
+
     if (autoConnect) {
       ws = await this.getConnectedWebSocketAndHandleMessage()
     } else {
@@ -104,33 +104,35 @@ export default class CameraSocketManager extends WebSocketManager {
       ws = this.ws!
     }
 
-    const controller = new AbortController()
+    const self = this
     const requestIdString = request.id.toString()
-    try {
-      return Promise.race<Response>([
-        timeout(timeoutMs, controller.signal).then(() => {
-          throw new Error('timeout')
-        }) as Promise<never>,
-        // request promise
-        new Promise<Response>((resolve, reject) => {
-          controller.signal.addEventListener('aborted', () =>
-            this.responseEmitter.removeListener(requestIdString, resolve),
-          )
-          // handle response
-          this.responseEmitter.once(requestIdString, resolve)
-          // send request
-          const message = proto.Message.create({
-            type: proto.Message.Type.REQUEST,
-            request,
-          })
-          ws.send(proto.Message.encode(message).finish(), (err) => {
-            if (err != null) reject(err)
-          })
-        }),
-      ])
-    } finally {
-      controller.abort()
-    }
+
+    return new Promise<Response>((resolve, reject) => {
+      // race timeout
+      const timeoutId = setTimeout(onTimeout, timeoutMs)
+
+      // send request
+      const message = proto.Message.create({
+        type: proto.Message.Type.REQUEST,
+        request,
+      })
+      this.responseEmitter.once(requestIdString, onResponse)
+      ws.send(proto.Message.encode(message).finish(), (err) => {
+        if (err != null) reject(err)
+      })
+
+      // handlers
+      function onTimeout() {
+        // request timeout
+        self.responseEmitter.removeListener(requestIdString, onResponse)
+        reject(new Error('timeout'))
+      }
+      function onResponse(res: Response) {
+        // request success
+        clearTimeout(timeoutId)
+        resolve(res)
+      }
+    })
   }
 
   startStreaming = memoizeConcurrent(async (rtmpUrl: string): Promise<{}> => {
