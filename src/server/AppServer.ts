@@ -318,9 +318,19 @@ class AppServer extends AbstractStartable {
     })
 
     // donePlay is called when the client is done playing
-    nms.on('donePlay', this.donePlay)
+    nms.on('donePlay', (id, path) => {
+      console.log(`[RTMP] donePlay ${path}`, { id })
+      this.onDonePlay(id, path)
+    })
     // doneConnect is called when the client disconnects, even if play failed
-    nms.on('doneConnect', this.donePlay)
+    nms.on(
+      'doneConnect',
+      // @ts-ignore - type is wrong - https://github.com/illuspas/Node-Media-Server/blob/abcacc3b9274cfa6df8aab874df2c255379f710c/src/node_flv_session.js#L94
+      (id, { streamPath: path }: { streamPath: string }) => {
+        console.log(`[RTMP] doneConnect ${path}`, { id })
+        this.onDonePlay(id, path)
+      },
+    )
 
     this.nms = nms
 
@@ -328,15 +338,15 @@ class AppServer extends AbstractStartable {
     console.log(`RTMP server started on port ${RTMP_PORT}`)
   }
 
-  donePlay = async (id: string, path: string, args: any) => {
-    console.log(`[RTMP] doneConnect ${path}`, { id })
+  onDonePlay = async (id: string, path: string) => {
+    console.log(`[RTMP] onDonePlay ${path}`, { id })
     const cameraUid = path.split('/').pop() ?? ''
     assert(cameraUid, 'cameraUid required')
 
     const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
     if (cameraStreamManager == null) {
-      console.log('[RTMP] doneConnect: cameraStreamManager not found', {
+      console.log('[RTMP] onDonePlay: cameraStreamManager not found', {
         cameraUid,
       })
       return
@@ -346,12 +356,12 @@ class AppServer extends AbstractStartable {
     cameraStreamManager
       .deleteSubscriber(id)
       .then(() => {
-        console.log('[RTMP] doneConnect: deleteSubscriber: success', {
+        console.log('[RTMP] onDonePlay: deleteSubscriber: success', {
           cameraUid,
         })
       })
       .catch((err) => {
-        console.log('[RTMP] doneConnect: deleteSubscriber: error', {
+        console.log('[RTMP] onDonePlay: deleteSubscriber: error', {
           cameraUid,
           err,
         })
