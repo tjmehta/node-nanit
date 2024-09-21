@@ -15,6 +15,7 @@ import envVar from 'env-var'
 import { CameraMessage, CameraMessageType } from '../validateBabyMessage'
 import { Subscription } from 'rxjs'
 import mqtt from 'async-mqtt'
+import { CameraStreamManager } from './CameraStreamManager'
 // import { CameraStreamManager } from './CameraStreamManager'
 const { get } = envVar
 
@@ -44,10 +45,7 @@ function mqttTopic(cameraUid: string): string {
 class AppServer extends AbstractStartable {
   // private cameraStreamManagers = new Map<string, CameraStreamManager>()
   private cameraEventsSubscriptions = new Map<string, Subscription>()
-  private cameraStreams = new Map<
-    string,
-    { stopPromise?: Promise<void>; stopTimeout?: NodeJS.Timeout }
-  >()
+  private cameraStreams = new Map<string, CameraStreamManager>()
   private nanitManager = nanitManager
   private mqtt: mqtt.AsyncMqttClient | null = null
   private httpServer: Server<
@@ -272,9 +270,9 @@ class AppServer extends AbstractStartable {
         return
       }
 
-      this.cameraStreams.set(cameraUid, {})
       const cameraStreamManager =
         this.nanitManager.getCameraStreamManager(cameraUid)
+      this.cameraStreams.set(cameraUid, cameraStreamManager)
       cameraStreamManager.publish()
     })
 
@@ -300,6 +298,7 @@ class AppServer extends AbstractStartable {
       assert(cameraUid, 'cameraUid required')
 
       const cameraStreamManager =
+        this.cameraStreams.get(cameraUid) ??
         this.nanitManager.getCameraStreamManager(cameraUid)
       cameraStreamManager.addSubscriber(id)
     })
@@ -310,6 +309,7 @@ class AppServer extends AbstractStartable {
       assert(cameraUid, 'cameraUid required')
 
       const cameraStreamManager =
+        this.cameraStreams.get(cameraUid) ??
         this.nanitManager.getCameraStreamManager(cameraUid)
       cameraStreamManager.deleteSubscriber(id)
     })
