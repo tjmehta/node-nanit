@@ -42,6 +42,7 @@ function mqttTopic(cameraUid: string): string {
 }
 
 class AppServer extends AbstractStartable {
+  private subscribersToCameraUid = new Map<string, string>()
   private cameraStreamManagers = new Map<string, CameraStreamManager>()
   private cameraMessageSubscriptions = new Map<string, Subscription>()
   private nanitManager = nanitManager
@@ -247,6 +248,7 @@ class AppServer extends AbstractStartable {
       this.cameraStreamManagers.get(cameraUid) ??
       new CameraStreamManager(this.nanitManager, cameraUid)
 
+    this.subscribersToCameraUid.set(id, cameraUid)
     this.cameraStreamManagers.set(cameraUid, cameraStreamManager)
 
     return cameraStreamManager.addSubscriber(id)
@@ -320,15 +322,29 @@ class AppServer extends AbstractStartable {
     // donePlay is called when the client is done playing
     nms.on('donePlay', (id, path) => {
       console.log(`[RTMP] donePlay ${path}`, { id })
-      this.onDonePlay(id, path)
+      console.log(`[RTMP] donePlay ${path}`, { id })
+      const cameraUid = path.split('/').pop() ?? ''
+      assert(cameraUid, 'cameraUid required')
+
+      this.onDonePlay(id, cameraUid)
     })
     // doneConnect is called when the client disconnects, even if play failed
     nms.on(
       'doneConnect',
       // @ts-ignore - type is wrong - https://github.com/illuspas/Node-Media-Server/blob/abcacc3b9274cfa6df8aab874df2c255379f710c/src/node_flv_session.js#L94
-      (id, { streamPath: path }: { streamPath: string }) => {
-        console.log(`[RTMP] doneConnect ${path}`, { id })
-        this.onDonePlay(id, path)
+      (id) => {
+        console.log(`[RTMP] doneConnect`, { id })
+
+        const cameraUid = this.subscribersToCameraUid.get(id)
+
+        if (cameraUid == null) {
+          console.log('[RTMP] doneConnect: already cleaned up!', { id })
+          return
+        }
+
+        this.subscribersToCameraUid.delete(id)
+
+        this.onDonePlay(id, cameraUid)
       },
     )
 
@@ -338,15 +354,12 @@ class AppServer extends AbstractStartable {
     console.log(`RTMP server started on port ${RTMP_PORT}`)
   }
 
-  onDonePlay = async (id: string, path: string) => {
-    console.log(`[RTMP] onDonePlay ${path}`, { id })
-    const cameraUid = path.split('/').pop() ?? ''
-    assert(cameraUid, 'cameraUid required')
-
+  onDonePlay = async (id: string, cameraUid: string) => {
     const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
     if (cameraStreamManager == null) {
       console.log('[RTMP] onDonePlay: cameraStreamManager not found', {
+        id,
         cameraUid,
       })
       return
@@ -357,11 +370,13 @@ class AppServer extends AbstractStartable {
       .deleteSubscriber(id)
       .then(() => {
         console.log('[RTMP] onDonePlay: deleteSubscriber: success', {
+          id,
           cameraUid,
         })
       })
       .catch((err) => {
         console.log('[RTMP] onDonePlay: deleteSubscriber: error', {
+          id,
           cameraUid,
           err,
         })
