@@ -18,6 +18,7 @@ import { Observable } from 'rxjs'
 import timeout from 'abortable-timeout'
 import envVar from 'env-var'
 import { StatusCodeError as WebSockerStatusCodeError } from './WebSocketManager'
+import { state } from 'abstract-startable'
 const { get } = envVar
 
 const NANIT_REQUEST_TIMEOUT = get('NANIT_REQUEST_TIMEOUT')
@@ -454,6 +455,13 @@ export default class Nanit extends ApiClient {
           },
           requestTimeoutMs: NANIT_REQUEST_TIMEOUT,
         })
+
+      if (
+        cameraSocketManager.state === state.STOPPING ||
+        cameraSocketManager.state === state.STOPPED
+      ) {
+        return this.resetCameraSocketManager(cameraUID)
+      }
       this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
 
       try {
@@ -463,7 +471,7 @@ export default class Nanit extends ApiClient {
             cameraUID,
           },
         )
-        await cameraSocketManager.start()
+        await cameraSocketManager.start({ force: true })
         console.log(
           'CameraSocketManager: getCameraSocketManager: cameraSocketManager success',
           {
@@ -494,13 +502,13 @@ export default class Nanit extends ApiClient {
       let cameraSocketManager = this.cameraSocketManagers.get(cameraUID)
 
       if (cameraSocketManager != null) {
+        this.cameraSocketManagers.delete(cameraUID)
         await cameraSocketManager.stop().catch((err) => {
           console.warn(
             'CameraSocketManager: resetCameraSocketManager: stop: error',
             { cameraUID, err },
           )
         })
-        this.cameraSocketManagers.delete(cameraUID)
       }
 
       cameraSocketManager = new CameraSocketManager(cameraUID, {
