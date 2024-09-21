@@ -317,40 +317,45 @@ class AppServer extends AbstractStartable {
         })
     })
 
-    nms.on('donePlay', async (id, path, args) => {
-      console.log(`[RTMP] donePlay ${path}`, { id })
-      const cameraUid = path.split('/').pop() ?? ''
-      assert(cameraUid, 'cameraUid required')
-
-      const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
-
-      if (cameraStreamManager == null) {
-        console.log('[RTMP] donePlay: cameraStreamManager not found', {
-          cameraUid,
-        })
-        return
-      }
-
-      // remove subscriber, and possibly stop the stream
-      cameraStreamManager
-        .deleteSubscriber(id)
-        .then(() => {
-          console.log('[RTMP] prePlay: deleteSubscriber: success', {
-            cameraUid,
-          })
-        })
-        .catch((err) => {
-          console.log('[RTMP] prePlay: deleteSubscriber: error', {
-            cameraUid,
-            err,
-          })
-        })
-    })
+    // donePlay is called when the client is done playing
+    nms.on('donePlay', this.donePlay)
+    // doneConnect is called when the client disconnects, even if play failed
+    nms.on('doneConnect', this.donePlay)
 
     this.nms = nms
 
     this.nms.run()
     console.log(`RTMP server started on port ${RTMP_PORT}`)
+  }
+
+  donePlay = async (id: string, path: string, args: any) => {
+    console.log(`[RTMP] doneConnect ${path}`, { id })
+    const cameraUid = path.split('/').pop() ?? ''
+    assert(cameraUid, 'cameraUid required')
+
+    const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
+
+    if (cameraStreamManager == null) {
+      console.log('[RTMP] doneConnect: cameraStreamManager not found', {
+        cameraUid,
+      })
+      return
+    }
+
+    // remove subscriber, and possibly stop the stream
+    cameraStreamManager
+      .deleteSubscriber(id)
+      .then(() => {
+        console.log('[RTMP] doneConnect: deleteSubscriber: success', {
+          cameraUid,
+        })
+      })
+      .catch((err) => {
+        console.log('[RTMP] doneConnect: deleteSubscriber: error', {
+          cameraUid,
+          err,
+        })
+      })
   }
 
   private async startPollingCameraMessages() {
