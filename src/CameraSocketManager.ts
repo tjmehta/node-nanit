@@ -191,7 +191,7 @@ export default class CameraSocketManager extends WebSocketManager {
     try {
       const res = await this.sendRequest(request, {
         timeoutMs: this.requestTimeoutMs,
-        autoConnect: false,
+        autoConnect: true,
       })
       console.log('[SocketManager] stopStreaming: request success', {
         cameraUID: this.cameraUID,
