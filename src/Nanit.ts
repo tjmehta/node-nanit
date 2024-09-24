@@ -125,20 +125,22 @@ export default class Nanit extends ApiClient {
         this.sessionCache != null
       ) {
         const session = this.sessionCache.value
-        console.log('request: use session', {
-          refreshToken: session.refreshToken,
-        })
+        // spammy logging
+        // console.log('request: use session', {
+        //   refreshToken: session.refreshToken,
+        // })
         Object.assign(headers, {
           Authorization: `token ${session.token ?? session.accessToken}`,
         })
       }
 
-      console.log('request: init', path, {
-        query: init?.query,
-        json: init?.json,
-        // @ts-ignore
-        auth: headers.Authorization ?? headers.authorization ?? null,
-      })
+      // spammy logging
+      // console.log('request: init', path, {
+      //   query: init?.query,
+      //   json: init?.json,
+      //   // @ts-ignore
+      //   auth: headers.Authorization ?? headers.authorization ?? null,
+      // })
 
       return {
         ...init,
@@ -411,7 +413,8 @@ export default class Nanit extends ApiClient {
           )
           return
         }
-        console.log('CameraSocketManager: pollCameraMessages: makeRequest')
+        // spammy logging
+        // console.log('CameraSocketManager: pollCameraMessages: makeRequest')
         makeRequest()
       }, intervalMs)
 

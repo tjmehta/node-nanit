@@ -39,17 +39,25 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
 
   protected async _start(opts?: WSMStartOptsType): Promise<void> {
     try {
+      const url = this.wsArgs[0]
       await new Promise<void>((resolve, reject) => {
-        console.log('WS: start', this.wsArgs)
+        console.log('WS: start', {
+          url,
+        })
         this.ws = new WS(...this.wsArgs)
         // handle error
         onceFirstEvent(this.ws, {
           error: (err: unknown) => {
-            console.error('WS: start: ws error', err)
+            console.error('WS: start: ws error', {
+              err,
+              url,
+            })
             reject(err)
           },
           open: () => {
-            console.log('WS: start: open')
+            console.log('WS: start: open', {
+              url,
+            })
             resolve()
           },
         })
@@ -62,7 +70,7 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
               return
             }
 
-            console.warn('WS: unexpected close', { state: this.state })
+            console.warn('WS: unexpected close', { url, state: this.state })
             if (this.state === state.STARTING) {
               reject(new Error('WS: unexpected close'))
               return
@@ -70,7 +78,7 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
 
             // this.state === state.STARTED
             this.stop({ force: true }).catch((err) => {
-              console.error('WS: unexpected close: stop error', err)
+              console.error('WS: unexpected close: stop error', { err, url })
             })
           }),
         )
@@ -104,10 +112,11 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
       ws?.close()
       return
     }
+    const url = this.wsArgs[0]
 
     await new Promise<void>((resolve, reject) => {
       if (this.ws == null) {
-        console.log('WS: stop: already gone')
+        console.log('WS: stop: already gone', { url })
         return resolve()
       }
 
@@ -125,7 +134,10 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
       })
 
       const timeoutId = setTimeout(() => {
-        console.warn('WS: stop: timeout', { readyState: this.ws?.readyState })
+        console.warn('WS: stop: timeout', {
+          url,
+          wsReadyState: this.ws?.readyState,
+        })
         // force close
         this.ws = null
         resolve()
@@ -141,7 +153,7 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
     })
 
     this.ws = null
-    console.log('WS: stop: done')
+    console.log('WS: stop: done', { url })
   }
 
   getConnectedWebSocket = memoizeConcurrent(

@@ -42,7 +42,10 @@ function mqttTopic(cameraUid: string): string {
 }
 
 class AppServer extends AbstractStartable {
-  private subscribersToCameraUid = new Map<string, string>()
+  private subscribersToCameraUid = new Map<
+    string,
+    { cameraUid: string; onDoneCalled: boolean }
+  >()
   private cameraStreamManagers = new Map<string, CameraStreamManager>()
   private cameraMessageSubscriptions = new Map<string, Subscription>()
   private nanitManager = nanitManager
@@ -248,7 +251,7 @@ class AppServer extends AbstractStartable {
       this.cameraStreamManagers.get(cameraUid) ??
       new CameraStreamManager(this.nanitManager, cameraUid)
 
-    this.subscribersToCameraUid.set(id, cameraUid)
+    this.subscribersToCameraUid.set(id, { cameraUid, onDoneCalled: false })
     this.cameraStreamManagers.set(cameraUid, cameraStreamManager)
 
     return cameraStreamManager.addSubscriber(id)
@@ -322,7 +325,6 @@ class AppServer extends AbstractStartable {
     // donePlay is called when the client is done playing
     nms.on('donePlay', (id, path) => {
       console.log(`[RTMP] donePlay ${path}`, { id })
-      console.log(`[RTMP] donePlay ${path}`, { id })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
 
@@ -335,16 +337,17 @@ class AppServer extends AbstractStartable {
       (id) => {
         console.log(`[RTMP] doneConnect`, { id })
 
-        const cameraUid = this.subscribersToCameraUid.get(id)
+        const subState = this.subscribersToCameraUid.get(id)
 
-        if (cameraUid == null) {
-          console.log('[RTMP] doneConnect: already cleaned up!', { id })
+        if (subState == null) {
+          console.error('[RTMP] doneConnect: called twice!', { id })
           return
         }
 
+        // prevent repetitive cleanup
         this.subscribersToCameraUid.delete(id)
 
-        this.onDonePlay(id, cameraUid)
+        this.onDonePlay(id, subState.cameraUid)
       },
     )
 
@@ -355,6 +358,19 @@ class AppServer extends AbstractStartable {
   }
 
   onDonePlay = async (id: string, cameraUid: string) => {
+    // update subState to prevent repetitive cleanup
+    const subState = this.subscribersToCameraUid.get(id)
+
+    if (subState?.onDoneCalled) {
+      console.log('[RTMP] doneConnect: already cleaned up', {
+        cameraUid: subState.cameraUid,
+        id,
+      })
+      return
+    }
+
+    if (subState) subState.onDoneCalled = true
+
     const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
     if (cameraStreamManager == null) {
