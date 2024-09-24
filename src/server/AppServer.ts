@@ -328,7 +328,15 @@ class AppServer extends AbstractStartable {
       assert(cameraUid, 'cameraUid required')
       console.log(`[RTMP] donePlay`, { cameraUid, id })
 
-      this.onDonePlay(id, cameraUid)
+      const subState = this.subscribersToCameraUid.get(id)
+
+      if (subState == null) {
+        console.log('[RTMP] donePlay: already disconnected', { cameraUid, id })
+        return
+      }
+
+      // not pure! modifies subState
+      this.onDonePlay(id, subState)
     })
     // doneConnect is called when the client disconnects, even if play failed
     nms.on(
@@ -343,14 +351,16 @@ class AppServer extends AbstractStartable {
         })
 
         if (subState == null) {
-          console.error('[RTMP] doneConnect: called twice!', { id })
+          console.error('[RTMP] doneConnect: already disconnected', {
+            id,
+          })
           return
         }
 
-        // prevent repetitive cleanup
         this.subscribersToCameraUid.delete(id)
 
-        this.onDonePlay(id, subState.cameraUid)
+        // not pure! modifies subState
+        this.onDonePlay(id, subState)
       },
     )
 
@@ -360,15 +370,18 @@ class AppServer extends AbstractStartable {
     console.log(`RTMP server started on port ${RTMP_PORT}`)
   }
 
-  onDonePlay = async (id: string, cameraUid: string) => {
+  onDonePlay = async (
+    id: string,
+    subState: { cameraUid: string; onDoneCalled: boolean },
+  ) => {
+    let cameraUid = subState.cameraUid
     // update subState to prevent repetitive cleanup
     console.log('[RTMP] onDonePlay', {
       cameraUid,
       id,
     })
-    const subState = this.subscribersToCameraUid.get(id)
 
-    if (subState?.onDoneCalled) {
+    if (subState.onDoneCalled) {
       console.log('[RTMP] onDonePlay: already cleaned up', {
         cameraUid,
         id,
@@ -376,7 +389,7 @@ class AppServer extends AbstractStartable {
       return
     }
 
-    if (subState) subState.onDoneCalled = true
+    subState.onDoneCalled = true
 
     const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
