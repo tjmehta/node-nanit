@@ -324,9 +324,9 @@ class AppServer extends AbstractStartable {
 
     // donePlay is called when the client is done playing
     nms.on('donePlay', (id, path) => {
-      console.log(`[RTMP] donePlay ${path}`, { id })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
+      console.log(`[RTMP] donePlay`, { cameraUid, id })
 
       this.onDonePlay(id, cameraUid)
     })
@@ -335,9 +335,12 @@ class AppServer extends AbstractStartable {
       'doneConnect',
       // @ts-ignore - type is wrong - https://github.com/illuspas/Node-Media-Server/blob/abcacc3b9274cfa6df8aab874df2c255379f710c/src/node_flv_session.js#L94
       (id) => {
-        console.log(`[RTMP] doneConnect`, { id })
-
         const subState = this.subscribersToCameraUid.get(id)
+
+        console.log(`[RTMP] doneConnect`, {
+          cameraUid: subState?.cameraUid,
+          id,
+        })
 
         if (subState == null) {
           console.error('[RTMP] doneConnect: called twice!', { id })
@@ -359,11 +362,15 @@ class AppServer extends AbstractStartable {
 
   onDonePlay = async (id: string, cameraUid: string) => {
     // update subState to prevent repetitive cleanup
+    console.log('[RTMP] onDonePlay', {
+      cameraUid,
+      id,
+    })
     const subState = this.subscribersToCameraUid.get(id)
 
     if (subState?.onDoneCalled) {
-      console.log('[RTMP] doneConnect: already cleaned up', {
-        cameraUid: subState.cameraUid,
+      console.log('[RTMP] onDonePlay: already cleaned up', {
+        cameraUid,
         id,
       })
       return
@@ -375,8 +382,8 @@ class AppServer extends AbstractStartable {
 
     if (cameraStreamManager == null) {
       console.log('[RTMP] onDonePlay: cameraStreamManager not found', {
-        id,
         cameraUid,
+        id,
       })
       return
     }
@@ -386,14 +393,14 @@ class AppServer extends AbstractStartable {
       .deleteSubscriber(id)
       .then(() => {
         console.log('[RTMP] onDonePlay: deleteSubscriber: success', {
-          id,
           cameraUid,
+          id,
         })
       })
       .catch((err) => {
         console.log('[RTMP] onDonePlay: deleteSubscriber: error', {
-          id,
           cameraUid,
+          id,
           err,
         })
       })
