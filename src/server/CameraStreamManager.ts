@@ -47,8 +47,9 @@ export class CameraStreamManager extends AbstractStartable {
 
     if (currSize > prevSize) {
       console.log('[StreamManager] addSubscriber: one added: forceStart', {
-        subscriberCount: currSize,
         cameraUid: this.cameraUid,
+        id: subscriberId,
+        subscriberCount: currSize,
       })
       return this.start({ force: true })
     }
@@ -68,6 +69,7 @@ export class CameraStreamManager extends AbstractStartable {
           {
             err,
             cameraUid: this.cameraUid,
+            id: subscriberId,
             subscriberCount: this.cameraStreamSubscriberIds.size,
           },
         )
