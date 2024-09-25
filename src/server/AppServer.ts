@@ -16,6 +16,7 @@ import { CameraMessage, CameraMessageType } from '../validateBabyMessage'
 import { Subscription } from 'rxjs'
 import mqtt from 'async-mqtt'
 import { CameraStreamManager } from './CameraStreamManager'
+import promiseBackoff from 'promise-backoff'
 const { get } = envVar
 
 const HTTP_PORT = get('HTTP_PORT').default(3000).asPortNumber()
@@ -48,14 +49,10 @@ class AppServer extends AbstractStartable {
   // subId -> { cameraUid: string; onDoneCalled: boolean }
   private subscribersToCameraUid = new Map<
     string,
-    {
-      cameraUid: string
-      onDoneCalled: boolean
-      postPlayTimeoutId: NodeJS.Timeout
-    }
+    { cameraUid: string; onDoneCalled: boolean }
   >()
   // subId -> TimeoutId
-  private postPlayTimeoutIds = new Map<string, NodeJS.Timeout>()
+  private retryimeoutIds = new Map<string, NodeJS.Timeout>()
   // cameraUid -> CameraStreamManager
   private cameraStreamManagers = new Map<string, CameraStreamManager>()
   // cameraUid -> Subscription
@@ -258,7 +255,7 @@ class AppServer extends AbstractStartable {
     await this.startPollingCameraMessages()
   }
 
-  private addSubscriber(cameraUid: string, id: string) {
+  private addSubscriber(cameraUid: string, id: string, attempt: number = 0) {
     const cameraStreamManager =
       this.cameraStreamManagers.get(cameraUid) ??
       new CameraStreamManager(this.nanitManager, cameraUid)
@@ -266,39 +263,16 @@ class AppServer extends AbstractStartable {
     this.subscribersToCameraUid.set(id, {
       cameraUid,
       onDoneCalled: false,
-      postPlayTimeoutId: setTimeout(() => {
-        this.deleteSubscriber(id)
-      }, PLAY_TIMEOUT),
     })
     this.cameraStreamManagers.set(cameraUid, cameraStreamManager)
 
     return cameraStreamManager.addSubscriber(id)
   }
 
-  private deleteSubscriber = async (id: string) => {
-    const subState = this.subscribersToCameraUid.get(id)
-
-    if (subState == null) {
-      console.error('[RTMP] deleteSubscriber: already removed', { id })
-      return
-    }
-
-    // prevent repeated removals
-    this.subscribersToCameraUid.delete(id)
-
-    // clear the postPlayTimeout
-    clearTimeout(subState.postPlayTimeoutId)
-
-    const cameraUid = subState.cameraUid
+  private deleteSubscriber = async (id: string, cameraUid: string) => {
     const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
-    if (cameraStreamManager == null) {
-      console.error('[RTMP] deleteSubscriber: cameraStreamManager not found', {
-        cameraUid,
-        id,
-      })
-      return
-    }
+    assert(cameraStreamManager, 'cameraStreamManager not found')
 
     // remove subscriber, and possibly stop the stream
     return cameraStreamManager.deleteSubscriber(id)
@@ -354,38 +328,41 @@ class AppServer extends AbstractStartable {
       console.log(`[RTMP] prePlay ${path}`, { id })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
-
-      this.addSubscriber(cameraUid, id)
+      let attempt = 0
+      promiseBackoff<void>(
+        {
+          timeouts: [10, 20, 30],
+        },
+        async ({ retry }) => {
+          attempt++
+          try {
+            console.log('[RTMP] prePlay: addSubscriber: attempt', {
+              cameraUid,
+              id,
+              attempt,
+            })
+            await this.addSubscriber(cameraUid, id)
+          } catch (err: any) {
+            // retry all errors, including timeout
+            return retry(err)
+          }
+        },
+      )
         .then(() => {
           console.log('[RTMP] prePlay: addSubscriber: success', {
             cameraUid,
             id,
+            attempt,
           })
         })
         .catch((err) => {
           console.log('[RTMP] prePlay: addSubscriber: error', {
             cameraUid,
             id,
+            attempt,
             err,
           })
         })
-    })
-
-    nms.on('postPlay', async (id, path, args) => {
-      console.log(`[RTMP] postPlay ${path}`, { id })
-      const cameraUid = path.split('/').pop() ?? ''
-      assert(cameraUid, 'cameraUid required')
-
-      const subState = this.subscribersToCameraUid.get(id)
-
-      if (subState == null) {
-        console.warn('[RTMP] postPlay: already disconnected', { cameraUid, id })
-        return
-      }
-
-      // clear the postPlayTimeout
-      console.log('[RTMP] postPlay: success', { cameraUid, id })
-      clearTimeout(subState.postPlayTimeoutId)
     })
 
     // donePlay is called when the client is done playing
@@ -394,7 +371,7 @@ class AppServer extends AbstractStartable {
       assert(cameraUid, 'cameraUid required')
       console.log(`[RTMP] donePlay`, { cameraUid, id })
 
-      this.deleteSubscriber(id)
+      this.deleteSubscriber(id, cameraUid)
         .then(() => {
           console.log('[RTMP] donePlay: deleteSubscriber: success', {
             cameraUid,
@@ -409,35 +386,6 @@ class AppServer extends AbstractStartable {
           })
         })
     })
-    // doneConnect is called when the client disconnects, even if play failed
-    nms.on(
-      'doneConnect',
-      // @ts-ignore - type is wrong - https://github.com/illuspas/Node-Media-Server/blob/abcacc3b9274cfa6df8aab874df2c255379f710c/src/node_flv_session.js#L94
-      (id) => {
-        const subState = this.subscribersToCameraUid.get(id)
-        const cameraUid = subState?.cameraUid
-
-        console.log(`[RTMP] doneConnect`, {
-          cameraUid,
-          id,
-        })
-
-        this.deleteSubscriber(id)
-          .then(() => {
-            console.log('[RTMP] doneConnect: deleteSubscriber: success', {
-              cameraUid,
-              id,
-            })
-          })
-          .catch((err) => {
-            console.log('[RTMP] doneConnect: deleteSubscriber: error', {
-              cameraUid,
-              id,
-              err,
-            })
-          })
-      },
-    )
 
     this.nms = nms
 

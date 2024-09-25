@@ -21,7 +21,7 @@ import { StatusCodeError as WebSockerStatusCodeError } from './WebSocketManager'
 import { state } from 'abstract-startable'
 const { get } = envVar
 
-const NANIT_REQUEST_TIMEOUT = get('NANIT_REQUEST_TIMEOUT')
+export const NANIT_REQUEST_TIMEOUT = get('NANIT_REQUEST_TIMEOUT')
   .default(1000 * 20)
   .asIntPositive()
 const NANIT_EVENTS_MESSAGE_MAX_AGE = get('NANIT_EVENTS_MESSAGE_MAX_AGE')
@@ -456,7 +456,7 @@ export default class Nanit extends ApiClient {
               }`,
             },
           },
-          requestTimeoutMs: NANIT_REQUEST_TIMEOUT,
+          requestTimeoutMs: NANIT_REQUEST_TIMEOUT * 2,
         })
 
       if (
@@ -524,7 +524,7 @@ export default class Nanit extends ApiClient {
             }`,
           },
         },
-        requestTimeoutMs: NANIT_REQUEST_TIMEOUT,
+        requestTimeoutMs: NANIT_REQUEST_TIMEOUT * 2,
       })
       this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
       await cameraSocketManager.start()

@@ -9,6 +9,7 @@ import timeout from 'abortable-timeout'
 import memoizeConcurrent from 'memoize-concurrent'
 import createDeferredPromise, { DeferredPromise } from 'p-defer'
 import BaseError from 'baseerr'
+import { NANIT_REQUEST_TIMEOUT } from '../Nanit'
 const { get } = envVar
 
 const RTMP_HOST = get('RTMP_HOST').required().asString()
@@ -51,7 +52,31 @@ export class CameraStreamManager extends AbstractStartable {
         id: subscriberId,
         subscriberCount: currSize,
       })
-      return this.start({ force: true })
+      try {
+        await this.start({ force: true })
+      } catch (err) {
+        console.error(
+          '[StreamManager] addSubscriber: one added: forceStart error',
+          {
+            err,
+            cameraUid: this.cameraUid,
+            id: subscriberId,
+          },
+        )
+
+        this.deleteSubscriber(subscriberId).catch((err) => {
+          console.error(
+            '[StreamManager] addSubscriber: one added: removeSubscriber error',
+            {
+              err,
+              cameraUid: this.cameraUid,
+              id: subscriberId,
+            },
+          )
+        })
+
+        return Promise.reject(err)
+      }
     }
   }
 
@@ -227,7 +252,12 @@ export class CameraStreamManager extends AbstractStartable {
         cameraUid: this.cameraUid,
       })
 
-      await this.publishingDeferred?.promise
+      await Promise.race([
+        timeout(NANIT_REQUEST_TIMEOUT * 2, null).then(() => {
+          throw new Error('timeout')
+        }),
+        this.publishingDeferred?.promise,
+      ])
       console.log('[StreamManager] _start: startStreaming publish success', {
         cameraUid: this.cameraUid,
       })
