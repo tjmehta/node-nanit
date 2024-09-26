@@ -354,6 +354,32 @@ class AppServer extends AbstractStartable {
             id,
             attempt,
           })
+          const subState = this.subscribersToCameraUid.get(id)
+          if (subState != null) return
+
+          console.warn('[RTMP] prePlay: addSubscriber: subState not found', {
+            cameraUid,
+            id,
+            attempt,
+          })
+
+          this.deleteSubscriber(id, cameraUid)
+            .then(() => {
+              console.log(
+                '[RTMP] prePlay: too late: deleteSubscriber: success',
+                {
+                  cameraUid,
+                  id,
+                },
+              )
+            })
+            .catch((err) => {
+              console.log('[RTMP] prePlay: too late: deleteSubscriber: error', {
+                cameraUid,
+                id,
+                err,
+              })
+            })
         })
         .catch((err) => {
           console.log('[RTMP] prePlay: addSubscriber: error', {
@@ -362,6 +388,26 @@ class AppServer extends AbstractStartable {
             attempt,
             err,
           })
+          this.deleteSubscriber(id, cameraUid)
+            .then(() => {
+              console.log(
+                '[RTMP] prePlay: add failed: deleteSubscriber: success',
+                {
+                  cameraUid,
+                  id,
+                },
+              )
+            })
+            .catch((err) => {
+              console.log(
+                '[RTMP] prePlay: add failed: deleteSubscriber: error',
+                {
+                  cameraUid,
+                  id,
+                  err,
+                },
+              )
+            })
         })
     })
 
