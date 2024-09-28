@@ -55,16 +55,16 @@ export class CameraStreamManager extends AbstractStartable {
       try {
         await this.start({ force: true })
       } catch (err) {
+        this.cameraStreamSubscriberIds.delete(subscriberId)
         console.error(
           '[StreamManager] addSubscriber: one added: forceStart error',
           {
             err,
             cameraUid: this.cameraUid,
             id: subscriberId,
+            subscriberCount: this.cameraStreamSubscriberIds.size,
           },
         )
-
-        this.cameraStreamSubscriberIds.delete(subscriberId)
 
         return Promise.reject(err)
       }

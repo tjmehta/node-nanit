@@ -483,11 +483,11 @@ export default class Nanit extends ApiClient {
         )
         return cameraSocketManager
       } catch (err) {
+        console.warn(
+          'CameraSocketManager: getCameraSocketManager: cameraSocketManager start: error',
+          { cameraUID, err },
+        )
         if (err instanceof WebSockerStatusCodeError && err.status === 401) {
-          console.warn(
-            'CameraSocketManager: getCameraSocketManager: cameraSocketManager start: error',
-            { cameraUID, err },
-          )
           await this.refreshSession()
           return this.resetCameraSocketManager(cameraUID)
         }
@@ -502,16 +502,28 @@ export default class Nanit extends ApiClient {
         this.sessionCache != null,
         'session required (login first)',
       )
+      console.log('CameraSocketManager: resetCameraSocketManager', {
+        cameraUID,
+      })
       let cameraSocketManager = this.cameraSocketManagers.get(cameraUID)
 
       if (cameraSocketManager != null) {
         this.cameraSocketManagers.delete(cameraUID)
+        console.log('CameraSocketManager: resetCameraSocketManager: stop', {
+          cameraUID,
+        })
         await cameraSocketManager.stop().catch((err) => {
           console.warn(
             'CameraSocketManager: resetCameraSocketManager: stop: error',
             { cameraUID, err },
           )
         })
+        console.log(
+          'CameraSocketManager: resetCameraSocketManager: stop: success',
+          {
+            cameraUID,
+          },
+        )
       }
 
       cameraSocketManager = new CameraSocketManager(cameraUID, {
@@ -527,7 +539,22 @@ export default class Nanit extends ApiClient {
         requestTimeoutMs: NANIT_REQUEST_TIMEOUT * 2,
       })
       this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
-      await cameraSocketManager.start()
+      console.log('CameraSocketManager: resetCameraSocketManager: start', {
+        cameraUID,
+      })
+      await cameraSocketManager.start().catch((err) => {
+        console.warn(
+          'CameraSocketManager: resetCameraSocketManager: start: error',
+          { cameraUID, err },
+        )
+        throw err
+      })
+      console.log(
+        'CameraSocketManager: resetCameraSocketManager: start: success',
+        {
+          cameraUID,
+        },
+      )
 
       return cameraSocketManager
     },

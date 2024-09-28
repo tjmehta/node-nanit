@@ -345,7 +345,18 @@ class AppServer extends AbstractStartable {
               attempt,
             })
             await this.addSubscriber(cameraUid, id)
+            console.log('[RTMP] prePlay: addSubscriber: success', {
+              cameraUid,
+              id,
+              attempt,
+            })
           } catch (err: any) {
+            console.log('[RTMP] prePlay: addSubscriber: error', {
+              err,
+              cameraUid,
+              id,
+              attempt,
+            })
             // retry all errors, including timeout
             return retry(err)
           }
