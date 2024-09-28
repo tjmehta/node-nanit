@@ -151,28 +151,34 @@ export class CameraStreamManager extends AbstractStartable {
     // finished publishing unexpectedly while streaming
     // this.state === 'STARTED' || this.state === 'STARTING'
     console.warn('[StreamManager] donePublish: unexpected while streaming')
-    this.stop({ force: true })
+    this.cameraStreamSubscriberIds.clear()
+    this.stop({ force: true }).catch((err) => {
+      console.error(
+        '[StreamManager] donePublish: unexpected: force stop error',
+        {
+          err,
+          cameraUid: this.cameraUid,
+          subscriberCount: this.cameraStreamSubscriberIds.size,
+        },
+      )
+    })
+
+    const p = this.start({ force: true })
+    this.delayedStop()
+    return p
       .catch((err) => {
         console.error(
-          '[StreamManager] donePublish: unexpected: force stop error',
+          '[StreamManager] donePublish: unexpected: restart error',
           { err, cameraUid: this.cameraUid },
         )
-      })
-      .then(() => {
-        return this.start({ force: true })
       })
       .then(() => {
         console.warn(
           '[StreamManager] donePublish: unexpected: restart success',
           {
             cameraUid: this.cameraUid,
+            subscriberCount: this.cameraStreamSubscriberIds.size,
           },
-        )
-      })
-      .catch((err) => {
-        console.error(
-          '[StreamManager] donePublish: unexpected: restart error',
-          { err, cameraUid: this.cameraUid },
         )
       })
   }
