@@ -64,16 +64,7 @@ export class CameraStreamManager extends AbstractStartable {
           },
         )
 
-        this.deleteSubscriber(subscriberId).catch((err) => {
-          console.error(
-            '[StreamManager] addSubscriber: one added: removeSubscriber error',
-            {
-              err,
-              cameraUid: this.cameraUid,
-              id: subscriberId,
-            },
-          )
-        })
+        this.cameraStreamSubscriberIds.delete(subscriberId)
 
         return Promise.reject(err)
       }
@@ -88,7 +79,9 @@ export class CameraStreamManager extends AbstractStartable {
         cameraUid: this.cameraUid,
         subscriberCount: this.cameraStreamSubscriberIds.size,
       })
-      this.delayedStop().catch((err) => {
+      try {
+        await this.delayedStop()
+      } catch (err) {
         console.error(
           '[StreamManager] deleteSubscriber: none left: delayedStop error',
           {
@@ -98,6 +91,11 @@ export class CameraStreamManager extends AbstractStartable {
             subscriberCount: this.cameraStreamSubscriberIds.size,
           },
         )
+      }
+    } else {
+      console.log('[StreamManager] deleteSubscriber: remaining subscribers', {
+        cameraUid: this.cameraUid,
+        subscriberCount: this.cameraStreamSubscriberIds.size,
       })
     }
   }
@@ -256,7 +254,7 @@ export class CameraStreamManager extends AbstractStartable {
         timeout(NANIT_REQUEST_TIMEOUT * 2, null).then(() => {
           throw new Error('timeout')
         }),
-        this.publishingDeferred?.promise,
+        this.publishingDeferred.promise,
       ])
       console.log('[StreamManager] _start: startStreaming publish success', {
         cameraUid: this.cameraUid,

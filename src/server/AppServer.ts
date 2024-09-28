@@ -46,11 +46,6 @@ function mqttTopic(cameraUid: string): string {
 }
 
 class AppServer extends AbstractStartable {
-  // subId -> { cameraUid: string; onDoneCalled: boolean }
-  private subscribersToCameraUid = new Map<
-    string,
-    { cameraUid: string; onDoneCalled: boolean }
-  >()
   // subId -> TimeoutId
   private retryimeoutIds = new Map<string, NodeJS.Timeout>()
   // cameraUid -> CameraStreamManager
@@ -255,18 +250,18 @@ class AppServer extends AbstractStartable {
     await this.startPollingCameraMessages()
   }
 
-  private addSubscriber(cameraUid: string, id: string, attempt: number = 0) {
+  private async addSubscriber(
+    cameraUid: string,
+    id: string,
+    attempt: number = 0,
+  ) {
     const cameraStreamManager =
       this.cameraStreamManagers.get(cameraUid) ??
       new CameraStreamManager(this.nanitManager, cameraUid)
 
-    this.subscribersToCameraUid.set(id, {
-      cameraUid,
-      onDoneCalled: false,
-    })
     this.cameraStreamManagers.set(cameraUid, cameraStreamManager)
 
-    return cameraStreamManager.addSubscriber(id)
+    await cameraStreamManager.addSubscriber(id)
   }
 
   private deleteSubscriber = async (id: string, cameraUid: string) => {
@@ -275,7 +270,15 @@ class AppServer extends AbstractStartable {
     assert(cameraStreamManager, 'cameraStreamManager not found')
 
     // remove subscriber, and possibly stop the stream
-    return cameraStreamManager.deleteSubscriber(id)
+    try {
+      await cameraStreamManager.deleteSubscriber(id)
+    } catch (err) {
+      console.error('[AppServer] deleteSubscriber error', {
+        id,
+        cameraUid,
+        err,
+      })
+    }
   }
 
   private async startRtmpServer() {
@@ -348,67 +351,6 @@ class AppServer extends AbstractStartable {
           }
         },
       )
-        .then(() => {
-          console.log('[RTMP] prePlay: addSubscriber: success', {
-            cameraUid,
-            id,
-            attempt,
-          })
-          const subState = this.subscribersToCameraUid.get(id)
-          if (subState != null) return
-
-          console.warn('[RTMP] prePlay: addSubscriber: subState not found', {
-            cameraUid,
-            id,
-            attempt,
-          })
-
-          this.deleteSubscriber(id, cameraUid)
-            .then(() => {
-              console.log(
-                '[RTMP] prePlay: too late: deleteSubscriber: success',
-                {
-                  cameraUid,
-                  id,
-                },
-              )
-            })
-            .catch((err) => {
-              console.log('[RTMP] prePlay: too late: deleteSubscriber: error', {
-                cameraUid,
-                id,
-                err,
-              })
-            })
-        })
-        .catch((err) => {
-          console.log('[RTMP] prePlay: addSubscriber: error', {
-            cameraUid,
-            id,
-            attempt,
-            err,
-          })
-          this.deleteSubscriber(id, cameraUid)
-            .then(() => {
-              console.log(
-                '[RTMP] prePlay: add failed: deleteSubscriber: success',
-                {
-                  cameraUid,
-                  id,
-                },
-              )
-            })
-            .catch((err) => {
-              console.log(
-                '[RTMP] prePlay: add failed: deleteSubscriber: error',
-                {
-                  cameraUid,
-                  id,
-                  err,
-                },
-              )
-            })
-        })
     })
 
     // donePlay is called when the client is done playing
