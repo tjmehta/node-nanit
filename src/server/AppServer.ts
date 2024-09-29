@@ -442,13 +442,14 @@ class AppServer extends AbstractStartable {
                   err,
                 })
               })
-            const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
-            process.nextTick(() => cameraStreamManager?.deleteSubscriber(subId))
+              .finally(() => {
+                this.mqtt?.publish(
+                  mqttTopic(cameraUid),
+                  message.type.toUpperCase() as CameraMessageType,
+                )
+              })
 
-            this.mqtt?.publish(
-              mqttTopic(cameraUid),
-              message.type.toUpperCase() as CameraMessageType,
-            )
+            process.nextTick(() => this.deleteSubscriber(subId, cameraUid))
           },
           error: (err) => {
             console.log('[RTMP] camera message: error', {
