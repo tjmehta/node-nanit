@@ -150,8 +150,26 @@ export class CameraStreamManager extends AbstractStartable {
     // TODO: i dont ever see this in logs but maybe this isn't right..
     // finished publishing unexpectedly while streaming
     // this.state === 'STARTED' || this.state === 'STARTING'
-    console.warn('[StreamManager] donePublish: unexpected while streaming')
+    console.warn('[StreamManager] donePublish: unexpected while streaming', {
+      cameraUid: this.cameraUid,
+      state: this.state,
+      subscriberCount: this.cameraStreamSubscriberIds.size,
+    })
+    if (this.cameraStreamSubscriberIds.size === 0) {
+      console.log(
+        '[StreamManager] donePublish: unexpected: no subscribers.. stopping later anyways',
+        {
+          cameraUid: this.cameraUid,
+        },
+      )
+      return
+    }
+
     this.cameraStreamSubscriberIds.clear()
+    console.error(
+      '[StreamManager] donePublish: unexpected: force stop and start again',
+      { cameraUid: this.cameraUid },
+    )
     this.stop({ force: true }).catch((err) => {
       console.error(
         '[StreamManager] donePublish: unexpected: force stop error',
