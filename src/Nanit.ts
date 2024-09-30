@@ -185,7 +185,7 @@ export default class Nanit extends ApiClient {
       ) {
         // unauthorized error on a non-login request, refresh token and retry
         const { refreshSession } = await import('./server/nanitManager')
-        await refreshSession()
+        await refreshSession(true /* resetCameraSocketManagers */)
 
         return await super.json<JsonType, QueryType>(path, expectedStatus, init)
       }
@@ -277,7 +277,9 @@ export default class Nanit extends ApiClient {
   )
 
   refreshSession = memoizeConcurrent(
-    async (): Promise<SessionType> => {
+    async (
+      resetCameraSocketManagers: boolean = false,
+    ): Promise<SessionType> => {
       BaseError.assert(
         this.sessionCache != null,
         'session required (login first)',
@@ -298,7 +300,9 @@ export default class Nanit extends ApiClient {
         date: new Date(),
       }
 
-      await this.resetCameraSocketManagers()
+      if (resetCameraSocketManagers) {
+        await this.resetCameraSocketManagers()
+      }
 
       return this.sessionCache.value
     },
@@ -459,20 +463,15 @@ export default class Nanit extends ApiClient {
           requestTimeoutMs: NANIT_REQUEST_TIMEOUT * 2,
         })
 
+      this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
+
       if (
         cameraSocketManager.state === state.STOPPING ||
         cameraSocketManager.state === state.STOPPED
       ) {
-        await this.refreshSession()
-        const refreshedCameraSocketManager =
-          this.cameraSocketManagers.get(cameraUID)
-        BaseError.assert(
-          refreshedCameraSocketManager != null,
-          'cameraSocketManager not found after refresh',
-        )
-        return refreshedCameraSocketManager
+        await this.refreshSession(false /* resetCameraSocketManagers */)
+        return this.resetCameraSocketManager(cameraUID)
       }
-      this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
 
       try {
         console.log(
@@ -495,14 +494,8 @@ export default class Nanit extends ApiClient {
           { cameraUID, err },
         )
         if (err instanceof WebSockerStatusCodeError && err.status === 401) {
-          await this.refreshSession()
-          const refreshedCameraSocketManager =
-            this.cameraSocketManagers.get(cameraUID)
-          BaseError.assert(
-            refreshedCameraSocketManager != null,
-            'cameraSocketManager not found after refresh',
-          )
-          return refreshedCameraSocketManager
+          await this.refreshSession(false /* resetCameraSocketManagers */)
+          return this.resetCameraSocketManager(cameraUID)
         }
         throw err
       }
