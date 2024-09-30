@@ -463,13 +463,20 @@ export default class Nanit extends ApiClient {
         cameraSocketManager.state === state.STOPPING ||
         cameraSocketManager.state === state.STOPPED
       ) {
-        return this.resetCameraSocketManager(cameraUID)
+        await this.refreshSession()
+        const refreshedCameraSocketManager =
+          this.cameraSocketManagers.get(cameraUID)
+        BaseError.assert(
+          refreshedCameraSocketManager != null,
+          'cameraSocketManager not found after refresh',
+        )
+        return refreshedCameraSocketManager
       }
       this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
 
       try {
         console.log(
-          'CameraSocketManager: getCameraSocketManager: cameraSocketManager start',
+          'CameraSocketManager: getCameraSocketManager: cameraSocketManager start: error',
           {
             cameraUID,
           },
@@ -489,7 +496,13 @@ export default class Nanit extends ApiClient {
         )
         if (err instanceof WebSockerStatusCodeError && err.status === 401) {
           await this.refreshSession()
-          return this.resetCameraSocketManager(cameraUID)
+          const refreshedCameraSocketManager =
+            this.cameraSocketManagers.get(cameraUID)
+          BaseError.assert(
+            refreshedCameraSocketManager != null,
+            'cameraSocketManager not found after refresh',
+          )
+          return refreshedCameraSocketManager
         }
         throw err
       }
