@@ -12,8 +12,8 @@ import { Server } from 'http'
 import nanitManager, { NanitManager } from './nanitManager'
 import assert from 'assert'
 import envVar from 'env-var'
-import { CameraMessage, CameraMessageType } from '../validateBabyMessage'
-import { Subscription } from 'rxjs'
+import { CameraMessageType } from '../validateBabyMessage'
+import { Subscription, tap, throttleTime } from 'rxjs'
 import mqtt from 'async-mqtt'
 import { CameraStreamManager } from './CameraStreamManager'
 import promiseBackoff from 'promise-backoff'
@@ -420,9 +420,26 @@ class AppServer extends AbstractStartable {
           NANIT_EVENTS_POLLING_TYPES,
           NANIT_EVENTS_POLLING_INTERVAL,
         )
+        // publish to mqtt topic
+        .pipe(
+          tap((message) => {
+            console.log('[RTMP] camera message', {
+              cameraUid,
+              babyUid,
+              message,
+              type: message.type,
+            })
+            this.mqtt?.publish(
+              mqttTopic(cameraUid),
+              message.type.toUpperCase() as CameraMessageType,
+            )
+          }),
+        )
+        // leading edge throttle for interval
+        .pipe(throttleTime(NANIT_EVENTS_POLLING_INTERVAL))
         .subscribe({
           next: (message) => {
-            console.log('[RTMP] camera message', {
+            console.log('[RTMP] throttled camera message', {
               cameraUid,
               babyUid,
               message,
