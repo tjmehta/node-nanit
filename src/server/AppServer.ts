@@ -420,7 +420,7 @@ class AppServer extends AbstractStartable {
           NANIT_EVENTS_POLLING_TYPES,
           NANIT_EVENTS_POLLING_INTERVAL,
         )
-        // publish to mqtt topic
+        // log only
         .pipe(
           tap((message) => {
             console.log('[RTMP] camera message', {
@@ -429,10 +429,10 @@ class AppServer extends AbstractStartable {
               message,
               type: message.type,
             })
-            this.mqtt?.publish(
-              mqttTopic(cameraUid),
-              message.type.toUpperCase() as CameraMessageType,
-            )
+            // this.mqtt?.publish(
+            //   mqttTopic(cameraUid),
+            //   message.type.toUpperCase() as CameraMessageType,
+            // )
           }),
         )
         // leading edge throttle for interval
@@ -464,9 +464,9 @@ class AppServer extends AbstractStartable {
                   mqttTopic(cameraUid),
                   message.type.toUpperCase() as CameraMessageType,
                 )
+                // go ahead remove event subscriber
+                this.deleteSubscriber(subId, cameraUid)
               })
-
-            process.nextTick(() => this.deleteSubscriber(subId, cameraUid))
           },
           error: (err) => {
             console.log('[RTMP] camera message: error', {
