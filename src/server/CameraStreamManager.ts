@@ -260,11 +260,11 @@ export class CameraStreamManager extends AbstractStartable {
     }
   }
 
-  start = memoizeConcurrent(async (opts?: StartOptsType): Promise<void> => {
+  start = async (opts?: StartOptsType): Promise<void> => {
     BaseError.assert(!this.stoppedForever, 'stopped forever')
     this.cancelDelayedStop('start')
     return super.start(opts)
-  })
+  }
 
   async _start(opts?: StartOptsType) {
     console.log('[StreamManager] _start: startStreaming', {
@@ -307,10 +307,10 @@ export class CameraStreamManager extends AbstractStartable {
     }
   }
 
-  stop = memoizeConcurrent(async (opts?: StopOptsType): Promise<void> => {
+  stop = async (opts?: StopOptsType): Promise<void> => {
     this.cancelDelayedStop('stop')
     return super.stop(opts)
-  })
+  }
 
   async _stop(opts?: StopOptsType) {
     console.log('[StreamManager] _stop: stopStreaming', {
