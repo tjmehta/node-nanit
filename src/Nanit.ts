@@ -475,7 +475,7 @@ export default class Nanit extends ApiClient {
 
       try {
         console.log(
-          'CameraSocketManager: getCameraSocketManager: cameraSocketManager start: error',
+          'CameraSocketManager: getCameraSocketManager: cameraSocketManager start',
           {
             cameraUID,
           },

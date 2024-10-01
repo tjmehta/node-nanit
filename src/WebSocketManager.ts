@@ -67,6 +67,11 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
           (this.handleClose = () => {
             // expected close
             if (this.state === state.STOPPING || this.state === state.STOPPED) {
+              console.log('WS: expected close?', {
+                url,
+                state: this.state,
+              })
+              reject(new Error('WS: expected close'))
               return
             }
 
@@ -106,6 +111,7 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
   protected async _stop(
     { force }: { force?: boolean } = { force: false },
   ): Promise<void> {
+    console.log('WS: stop', { url: this.wsArgs[0], force })
     if (force) {
       const ws = this.ws
       this.ws = null
@@ -144,6 +150,7 @@ export default class WebSocketManager extends AbstractStartable<WSMStartOptsType
       }, handshakeTimeout)
 
       this.ws.once('close', () => {
+        console.log('WS: stop: close', { url })
         clearTimeout(timeoutId)
         this.ws = null
         resolve()
