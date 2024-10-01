@@ -181,9 +181,7 @@ export class CameraStreamManager extends AbstractStartable {
       )
     })
 
-    const p = this.start({ force: true })
-    this.delayedStop()
-    return p
+    return this.start({ force: true })
       .catch((err) => {
         console.error(
           '[StreamManager] donePublish: unexpected: restart error',
@@ -214,13 +212,6 @@ export class CameraStreamManager extends AbstractStartable {
 
   private delayedStop = memoizeConcurrent(
     async () => {
-      if (this.delayedStopController) {
-        console.log('[StreamManager] delayedStop: already scheduled', {
-          cameraUid: this.cameraUid,
-        })
-        return
-      }
-
       console.log('[StreamManager] delayedStop: schedule', {
         cameraUid: this.cameraUid,
       })
@@ -255,7 +246,14 @@ export class CameraStreamManager extends AbstractStartable {
   start = memoizeConcurrent(async (opts?: StartOptsType): Promise<void> => {
     BaseError.assert(!this.stoppedForever, 'stopped forever')
     this.cancelDelayedStop('start')
-    return super.start(opts)
+    const p = super.start(opts)
+    this.cancelDelayedStop('delayedStop:reset')
+    this.delayedStop().catch((err) => {
+      console.error('[StreamManager] start: delayedStop: error', {
+        err,
+      })
+    })
+    return p
   })
 
   async _start(opts?: StartOptsType) {
@@ -269,7 +267,12 @@ export class CameraStreamManager extends AbstractStartable {
       const rtmpUrl = CameraStreamManager.rtmpUrl(this.cameraUid)
 
       this.publishingDeferred = createDeferredPromise()
-      await nanit.startStreaming(this.cameraUid, rtmpUrl)
+      await Promise.race([
+        timeout(3 * 60 * 1000, null).then(() => {
+          throw new Error('whoa start streaming timeout for 3 minutes!!!!')
+        }),
+        nanit.startStreaming(this.cameraUid, rtmpUrl),
+      ])
       console.log('[StreamManager] _start: startStreaming request success', {
         cameraUid: this.cameraUid,
       })

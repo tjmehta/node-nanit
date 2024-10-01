@@ -424,6 +424,7 @@ class AppServer extends AbstractStartable {
         .pipe(
           tap((message) => {
             console.log('[RTMP] camera message', {
+              date: new Date().toISOString(),
               cameraUid,
               babyUid,
               message,
@@ -436,10 +437,15 @@ class AppServer extends AbstractStartable {
           }),
         )
         // leading edge throttle for interval
-        .pipe(throttleTime(NANIT_EVENTS_POLLING_INTERVAL))
+        .pipe(
+          throttleTime(NANIT_EVENTS_POLLING_INTERVAL, undefined, {
+            leading: true,
+          }),
+        )
         .subscribe({
           next: (message) => {
             console.log('[RTMP] throttled camera message', {
+              date: new Date().toISOString(),
               cameraUid,
               babyUid,
               message,
