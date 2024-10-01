@@ -253,14 +253,8 @@ export class CameraStreamManager extends AbstractStartable {
 
   start = memoizeConcurrent(async (opts?: StartOptsType): Promise<void> => {
     BaseError.assert(!this.stoppedForever, 'stopped forever')
-    const p = super.start(opts)
     this.cancelDelayedStop('start')
-    this.delayedStop().catch((err) => {
-      console.error('[StreamManager] start: delayedStop: error', {
-        err,
-      })
-    })
-    return p
+    return super.start(opts)
   })
 
   async _start(opts?: StartOptsType) {
