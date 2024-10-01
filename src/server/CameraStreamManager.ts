@@ -41,7 +41,7 @@ export class CameraStreamManager extends AbstractStartable {
     return CameraStreamManager.rtmpUrl(this.cameraUid)
   }
 
-  async addSubscriber(subscriberId: string) {
+  async addSubscriber(subscriberId: string): Promise<number> {
     const prevSize = this.cameraStreamSubscriberIds.size
     this.cameraStreamSubscriberIds.add(subscriberId)
     const currSize = this.cameraStreamSubscriberIds.size
@@ -52,7 +52,7 @@ export class CameraStreamManager extends AbstractStartable {
         id: subscriberId,
         subscriberCount: this.cameraStreamSubscriberIds.size,
       })
-      return
+      return currSize
     }
 
     console.log('[StreamManager] addSubscriber: one added: start', {
@@ -67,6 +67,7 @@ export class CameraStreamManager extends AbstractStartable {
         id: subscriberId,
         subscriberCount: this.cameraStreamSubscriberIds.size,
       })
+      return currSize
     } catch (err) {
       console.error('[StreamManager] addSubscriber: one added: start: error', {
         err,

@@ -341,7 +341,7 @@ class AppServer extends AbstractStartable {
     await this.startPollingCameraMessages()
   }
 
-  private async addSubscriber(cameraUid: string, id: string) {
+  private async addSubscriber(cameraUid: string, id: string): Promise<number> {
     const cameraStreamManager =
       this.cameraStreamManagers.get(cameraUid) ??
       new CameraStreamManager(this.nanitManager, cameraUid)
@@ -349,7 +349,7 @@ class AppServer extends AbstractStartable {
     this.cameraStreamManagers.set(cameraUid, cameraStreamManager)
 
     let attempt = 0
-    await promiseBackoff<void>(
+    return await promiseBackoff<number>(
       {
         timeouts: [10, 20, 30],
       },
@@ -361,12 +361,13 @@ class AppServer extends AbstractStartable {
             id,
             attempt,
           })
-          await cameraStreamManager.addSubscriber(id)
+          const count = await cameraStreamManager.addSubscriber(id)
           console.log('[RTMP] addSubscriber: success', {
             cameraUid,
             id,
             attempt,
           })
+          return count
         } catch (err: any) {
           console.log('[RTMP] addSubscriber: error', {
             err,
@@ -406,29 +407,49 @@ class AppServer extends AbstractStartable {
     })
 
     nms.on('prePublish', (id, path, args) => {
-      console.log(`[RTMP] prePublish ${path}`, { id })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
+      console.log(`[RTMP] prePublish ${path}`, {
+        cameraUid,
+        id,
+        date: Date.now(),
+      })
 
       const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
       if (cameraStreamManager == null) {
-        console.warn(`[RTMP] prePublish ${path}: unexpected!`, { id })
+        console.warn(`[RTMP] prePublish ${path}: unexpected!`, {
+          cameraUid,
+          id,
+        })
         return
       }
 
       cameraStreamManager.publish()
     })
 
-    nms.on('donePublish', (id, path, args) => {
-      console.log(`[RTMP] donePublish ${path}`, { id })
+    nms.on('postPublish', (id, path, args) => {
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
+      console.log(`[RTMP] postPublish ${path}`, {
+        cameraUid,
+        id,
+        date: Date.now(),
+      })
+    })
+
+    nms.on('donePublish', (id, path, args) => {
+      const cameraUid = path.split('/').pop() ?? ''
+      assert(cameraUid, 'cameraUid required')
+      console.log(`[RTMP] donePublish ${path}`, { cameraUid, id })
 
       const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
       if (cameraStreamManager == null) {
-        console.warn(`[RTMP] donePublish ${path}: unexpected!`, { id })
+        console.warn(`[RTMP] donePublish ${path}: unexpected!`, {
+          cameraUid,
+          id,
+        })
         return
       }
 
@@ -436,9 +457,9 @@ class AppServer extends AbstractStartable {
     })
 
     nms.on('prePlay', async (id, path, args) => {
-      console.log(`[RTMP] prePlay ${path}`, { id })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
+      console.log(`[RTMP] prePlay ${path}`, { cameraUid, id })
 
       try {
         console.log('[RTMP] prePlay: addSubscriber:', {
@@ -464,6 +485,7 @@ class AppServer extends AbstractStartable {
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
       console.log(`[RTMP] donePlay`, { cameraUid, id })
+      console.log(`[RTMP] donePlay ${path}`, { cameraUid, id })
 
       this.deleteSubscriber(cameraUid, id)
         .then(() => {
@@ -587,10 +609,13 @@ class AppServer extends AbstractStartable {
                 console.log('[RTMP] camera message: next: mqtt publish', {
                   cameraUid,
                 })
-                this.mqtt?.publish(
-                  mqttTopic(cameraUid),
-                  message.type.toUpperCase() as CameraMessageType,
-                )
+                // hack: allow for post publish....
+                setTimeout(() => {
+                  this.mqtt?.publish(
+                    mqttTopic(cameraUid),
+                    message.type.toUpperCase() as CameraMessageType,
+                  )
+                }, 1000)
               })
           },
           error: (err) => {
