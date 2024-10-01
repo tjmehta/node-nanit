@@ -17,6 +17,7 @@ import { Subscription, tap, throttleTime } from 'rxjs'
 import mqtt from 'async-mqtt'
 import { CameraStreamManager } from './CameraStreamManager'
 import promiseBackoff from 'promise-backoff'
+import EventEmitter from 'events'
 const { get } = envVar
 
 const HTTP_PORT = get('HTTP_PORT').default(3000).asPortNumber()
@@ -24,9 +25,6 @@ const HTTP_PORT = get('HTTP_PORT').default(3000).asPortNumber()
 const RTMP_HOST = get('RTMP_HOST').required().asString()
 const RTMP_PORT = get('RTMP_PORT').default(1935).asPortNumber()
 const RTMP_HTTP_PORT = get('RTMP_PORT').default(8000).asPortNumber()
-const PLAY_TIMEOUT = get('PLAY_TIMEOUT')
-  .default(1000 * 15)
-  .asIntPositive()
 const NANIT_EVENTS_POLLING_TYPES = get('NANIT_EVENTS_POLLING_TYPES')
   .default(`${CameraMessageType.MOTION},${CameraMessageType.SOUND}`)
   .asArray() as CameraMessageType[]
@@ -51,7 +49,10 @@ class AppServer extends AbstractStartable {
   // cameraUid -> CameraStreamManager
   private cameraStreamManagers = new Map<string, CameraStreamManager>()
   // cameraUid -> Subscription
-  private cameraMessageSubscriptions = new Map<string, Subscription>()
+  private cameraMessageSubscriptions = new Map<
+    string,
+    { subscription: Subscription; ee: EventEmitter }
+  >()
   private nanitManager = nanitManager
   private mqtt: mqtt.AsyncMqttClient | null = null
   private httpServer: Server<
@@ -179,6 +180,15 @@ class AppServer extends AbstractStartable {
           ].join('\n')
         : ''
     }
+    <p>MQTT Debugging:</p>
+    <ul>
+      ${cameras
+        .map(
+          (camera) =>
+            `<li><a href="/cameras/${camera.uid}/events">/cameras/${camera.uid}/events</a></li>`,
+        )
+        .join('\n')}
+    </ul>
 
     <a href="/logout">Logout</a>
   </body>
@@ -228,6 +238,87 @@ class AppServer extends AbstractStartable {
       await this.nanitManager.loginMfa(mfaCode)
       ctx.body = 'Login successful'
       this.onLogin()
+    })
+
+    router.get('/cameras/:cameraUid/events', async (ctx: any) => {
+      const { cameraUid } = ctx.params
+      const subState = this.cameraMessageSubscriptions.get(cameraUid)
+      if (!subState) {
+        ctx.body = 'Camera not found'
+        return
+      }
+      const { ee } = subState
+      ctx.body = `
+<html>
+  <body>
+    <script>
+    function submitForm(event, cameraUid, type) {
+      event.preventDefault();
+      fetch(\`/cameras/\${cameraUid}/events/\${type}\`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+      .then(response => response.json())
+      .then(data => console.log('Success:', data))
+      .catch((error) => alert('Error:' + error.message));
+    }
+    </script>
+    <p>MQTT Topics (messages: ${NANIT_EVENTS_POLLING_TYPES.map(
+      wrapInQuotes,
+    ).join(', ')}):</p>
+    ${
+      NANIT_EVENTS_POLLING_TYPES.length === 0
+        ? '<p>None of the types are set</p>'
+        : ''
+    }
+    ${NANIT_EVENTS_POLLING_TYPES.map((type) => {
+      return [
+        `<form id="form-${type}" onsubmit="submitForm(event, '${cameraUid}', '${type}')">`,
+        `<p key="${cameraUid}">/cameras/${cameraUid}/events/${type}</p>`,
+        `<button type="submit">Trigger ${type}</button>`,
+        '</form>',
+      ].join('\n')
+    }).join('\n')}
+  </body>
+</html>
+`
+    })
+
+    router.post('/cameras/:cameraUid/events/:type', async (ctx: any) => {
+      const { cameraUid, type } = ctx.params
+      console.log('[HTTP] POST /cameras/:cameraUid/events/:type', {
+        cameraUid,
+        type,
+      })
+      const subState = this.cameraMessageSubscriptions.get(cameraUid)
+      if (!subState) {
+        ctx.body = 'Camera not found'
+        return
+      }
+      const upperType = type.toUpperCase() as CameraMessageType
+      if (!NANIT_EVENTS_POLLING_TYPES.includes(upperType)) {
+        ctx.body = 'Invalid event type'
+        return
+      }
+
+      const { ee } = subState
+
+      ee.emit('testMessage', {
+        id: 22690834345,
+        babyUID: '5871f4ab',
+        userId: 393085,
+        type: upperType as CameraMessageType,
+        time: Math.floor(Date.now() / 1000),
+        readAt: null,
+        seenAt: null,
+        dismissedAt: null,
+        updatedAt: new Date(),
+        createdAt: new Date().toISOString(),
+      })
+
+      ctx.body = 'Event triggered'
     })
 
     router.get('/logout', async (ctx: any) => {
@@ -418,12 +509,13 @@ class AppServer extends AbstractStartable {
         return
       }
 
-      const subscription = nanit
-        .pollCameraMessages(
-          babyUid,
-          NANIT_EVENTS_POLLING_TYPES,
-          NANIT_EVENTS_POLLING_INTERVAL,
-        )
+      const cameraMessages = nanit.pollCameraMessages(
+        babyUid,
+        NANIT_EVENTS_POLLING_TYPES,
+        NANIT_EVENTS_POLLING_INTERVAL,
+      )
+      const ee = cameraMessages._ee
+      const subscription = cameraMessages
         // log only
         .pipe(
           tap((message) => {
@@ -518,12 +610,12 @@ class AppServer extends AbstractStartable {
           },
         })
 
-      this.cameraMessageSubscriptions.set(cameraUid, subscription)
+      this.cameraMessageSubscriptions.set(cameraUid, { subscription, ee })
     })
   }
 
   private stopPollingCameraMessages() {
-    this.cameraMessageSubscriptions.forEach((subscription) =>
+    this.cameraMessageSubscriptions.forEach(({ subscription }) =>
       subscription.unsubscribe(),
     )
     this.cameraMessageSubscriptions.clear()

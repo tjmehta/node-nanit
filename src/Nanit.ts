@@ -19,6 +19,7 @@ import timeout from 'abortable-timeout'
 import envVar from 'env-var'
 import { StatusCodeError as WebSockerStatusCodeError } from './WebSocketManager'
 import { state } from 'abstract-startable'
+import EventEmitter from 'events'
 const { get } = envVar
 
 export const NANIT_REQUEST_TIMEOUT = get('NANIT_REQUEST_TIMEOUT')
@@ -353,8 +354,9 @@ export default class Nanit extends ApiClient {
     babyUID: string,
     messageTypes: CameraMessageType[],
     intervalMs: number,
-  ): Observable<CameraMessage> {
-    return new Observable((subscriber) => {
+  ): Observable<CameraMessage> & { _ee: EventEmitter } {
+    const ee = new EventEmitter()
+    const observable = new Observable<CameraMessage>((subscriber) => {
       console.log('CameraSocketManager: pollCameraMessages: subscribe')
       let lastMessage: CameraMessage | null = null
       let requestState: {
@@ -422,12 +424,24 @@ export default class Nanit extends ApiClient {
         makeRequest()
       }, intervalMs)
 
+      ee.on('testMessage', (message) => {
+        console.log(
+          'CameraSocketManager: pollCameraMessages: testMessage',
+          message,
+        )
+        subscriber.next(message)
+      })
+
       return () => {
         console.log('CameraSocketManager: pollCameraMessages: unsubscribe')
         clearInterval(interval)
+        ee.removeAllListeners()
         requestState.controller?.abort()
       }
     })
+    //@ts-ignore
+    observable._ee = ee
+    return observable as Observable<CameraMessage> & { _ee: EventEmitter }
   }
 
   private resetCameraSocketManagers = async () => {
