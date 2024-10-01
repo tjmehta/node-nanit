@@ -427,7 +427,7 @@ class AppServer extends AbstractStartable {
         // log only
         .pipe(
           tap((message) => {
-            console.log('[RTMP] camera message', {
+            console.log('[RTMP] camera message: next: tap', {
               date: new Date().toISOString(),
               cameraUid,
               babyUid,
@@ -444,7 +444,7 @@ class AppServer extends AbstractStartable {
         )
         .subscribe({
           next: (message) => {
-            console.log('[RTMP] throttled camera message', {
+            console.log('[RTMP] camera message: next: throttled', {
               date: new Date().toISOString(),
               cameraUid,
               babyUid,
@@ -455,22 +455,17 @@ class AppServer extends AbstractStartable {
             const EVENT_SUB_ID = 'EVENT'
             this.addSubscriber(cameraUid, EVENT_SUB_ID)
               .then(() => {
-                console.log('[RTMP] camera message: addSubscriber: success', {
-                  cameraUid,
-                })
-              })
-              .catch((err) => {
-                console.log('[RTMP] camera message: addSubscriber: error', {
-                  cameraUid,
-                  err,
-                })
-              })
-              .finally(() => {
+                console.log(
+                  '[RTMP] camera message: next: addSubscriber: success',
+                  {
+                    cameraUid,
+                  },
+                )
                 // delete event subscriber..
                 this.deleteSubscriber(cameraUid, EVENT_SUB_ID)
                   .then(() => {
                     console.log(
-                      '[RTMP] camera message: deleteSubscriber: success',
+                      '[RTMP] camera message: next:deleteSubscriber: success',
                       {
                         cameraUid,
                       },
@@ -478,13 +473,28 @@ class AppServer extends AbstractStartable {
                   })
                   .catch((err) => {
                     console.log(
-                      '[RTMP] camera message: deleteSubscriber: error',
+                      '[RTMP] camera message: next: deleteSubscriber: error',
                       {
                         cameraUid,
                         err,
                       },
                     )
                   })
+              })
+              .catch((err) => {
+                // delete subscribe already happens on error internal to camera stream manager
+                console.log(
+                  '[RTMP] camera message: next: addSubscriber: error',
+                  {
+                    cameraUid,
+                    err,
+                  },
+                )
+              })
+              .finally(() => {
+                console.log('[RTMP] camera message: next: mqtt publish', {
+                  cameraUid,
+                })
                 this.mqtt?.publish(
                   mqttTopic(cameraUid),
                   message.type.toUpperCase() as CameraMessageType,

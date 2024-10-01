@@ -46,36 +46,45 @@ export class CameraStreamManager extends AbstractStartable {
     this.cameraStreamSubscriberIds.add(subscriberId)
     const currSize = this.cameraStreamSubscriberIds.size
 
-    if (currSize > prevSize) {
-      console.log('[StreamManager] addSubscriber: one added: forceStart', {
+    if (currSize === prevSize) {
+      console.log('[StreamManager] addSubscriber: already added:', {
         cameraUid: this.cameraUid,
         id: subscriberId,
-        subscriberCount: currSize,
+        subscriberCount: this.cameraStreamSubscriberIds.size,
       })
-      try {
-        await this.start({ force: true })
-      } catch (err) {
+      return
+    }
+
+    console.log('[StreamManager] addSubscriber: one added: start', {
+      cameraUid: this.cameraUid,
+      id: subscriberId,
+      subscriberCount: currSize,
+    })
+    try {
+      await this.start({ force: true })
+      console.log('[StreamManager] addSubscriber: one added: start: success', {
+        cameraUid: this.cameraUid,
+        id: subscriberId,
+        subscriberCount: this.cameraStreamSubscriberIds.size,
+      })
+    } catch (err) {
+      console.error('[StreamManager] addSubscriber: one added: start: error', {
+        err,
+        cameraUid: this.cameraUid,
+        id: subscriberId,
+        subscriberCount: this.cameraStreamSubscriberIds.size,
+      })
+      this.deleteSubscriber(subscriberId).catch((err) => {
         console.error(
-          '[StreamManager] addSubscriber: one added: forceStart error',
+          '[StreamManager] addSubscriber: one added: deleteSubscriber error',
           {
             err,
             cameraUid: this.cameraUid,
             id: subscriberId,
-            subscriberCount: this.cameraStreamSubscriberIds.size,
           },
         )
-        this.deleteSubscriber(subscriberId).catch((err) => {
-          console.error(
-            '[StreamManager] addSubscriber: one added: deleteSubscriber error',
-            {
-              err,
-              cameraUid: this.cameraUid,
-              id: subscriberId,
-            },
-          )
-        })
-        return Promise.reject(err)
-      }
+      })
+      return Promise.reject(err)
     }
   }
 
