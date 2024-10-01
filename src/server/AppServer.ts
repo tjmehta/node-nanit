@@ -250,35 +250,52 @@ class AppServer extends AbstractStartable {
     await this.startPollingCameraMessages()
   }
 
-  private async addSubscriber(
-    cameraUid: string,
-    id: string,
-    attempt: number = 0,
-  ) {
+  private async addSubscriber(cameraUid: string, id: string) {
     const cameraStreamManager =
       this.cameraStreamManagers.get(cameraUid) ??
       new CameraStreamManager(this.nanitManager, cameraUid)
 
     this.cameraStreamManagers.set(cameraUid, cameraStreamManager)
 
-    await cameraStreamManager.addSubscriber(id)
+    let attempt = 0
+    await promiseBackoff<void>(
+      {
+        timeouts: [10, 20, 30],
+      },
+      async ({ retry }) => {
+        attempt++
+        try {
+          console.log('[RTMP] addSubscriber: attempt', {
+            cameraUid,
+            id,
+            attempt,
+          })
+          await cameraStreamManager.addSubscriber(id)
+          console.log('[RTMP] addSubscriber: success', {
+            cameraUid,
+            id,
+            attempt,
+          })
+        } catch (err: any) {
+          console.log('[RTMP] addSubscriber: error', {
+            err,
+            cameraUid,
+            id,
+            attempt,
+          })
+          // retry all errors, including timeout
+          return retry(err)
+        }
+      },
+    )
   }
 
-  private deleteSubscriber = async (id: string, cameraUid: string) => {
+  private deleteSubscriber = async (cameraUid: string, id: string) => {
     const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
     assert(cameraStreamManager, 'cameraStreamManager not found')
 
-    // remove subscriber, and possibly stop the stream
-    try {
-      await cameraStreamManager.deleteSubscriber(id)
-    } catch (err) {
-      console.error('[AppServer] deleteSubscriber error', {
-        id,
-        cameraUid,
-        err,
-      })
-    }
+    await cameraStreamManager.deleteSubscriber(id)
   }
 
   private async startRtmpServer() {
@@ -331,37 +348,24 @@ class AppServer extends AbstractStartable {
       console.log(`[RTMP] prePlay ${path}`, { id })
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
-      let attempt = 0
-      promiseBackoff<void>(
-        {
-          timeouts: [10, 20, 30],
-        },
-        async ({ retry }) => {
-          attempt++
-          try {
-            console.log('[RTMP] prePlay: addSubscriber: attempt', {
-              cameraUid,
-              id,
-              attempt,
-            })
-            await this.addSubscriber(cameraUid, id)
-            console.log('[RTMP] prePlay: addSubscriber: success', {
-              cameraUid,
-              id,
-              attempt,
-            })
-          } catch (err: any) {
-            console.log('[RTMP] prePlay: addSubscriber: error', {
-              err,
-              cameraUid,
-              id,
-              attempt,
-            })
-            // retry all errors, including timeout
-            return retry(err)
-          }
-        },
-      )
+
+      try {
+        console.log('[RTMP] prePlay: addSubscriber:', {
+          cameraUid,
+          id,
+        })
+        await this.addSubscriber(cameraUid, id)
+        console.log('[RTMP] prePlay: addSubscriber: success', {
+          cameraUid,
+          id,
+        })
+      } catch (err: any) {
+        console.log('[RTMP] prePlay: addSubscriber: error', {
+          err,
+          cameraUid,
+          id,
+        })
+      }
     })
 
     // donePlay is called when the client is done playing
@@ -370,7 +374,7 @@ class AppServer extends AbstractStartable {
       assert(cameraUid, 'cameraUid required')
       console.log(`[RTMP] donePlay`, { cameraUid, id })
 
-      this.deleteSubscriber(id, cameraUid)
+      this.deleteSubscriber(cameraUid, id)
         .then(() => {
           console.log('[RTMP] donePlay: deleteSubscriber: success', {
             cameraUid,
@@ -430,10 +434,6 @@ class AppServer extends AbstractStartable {
               message,
               type: message.type,
             })
-            // this.mqtt?.publish(
-            //   mqttTopic(cameraUid),
-            //   message.type.toUpperCase() as CameraMessageType,
-            // )
           }),
         )
         // leading edge throttle for interval
@@ -452,8 +452,8 @@ class AppServer extends AbstractStartable {
               type: message.type,
             })
             // publish "SOUND" or "MOTION"
-            const subId = 'EVENT'
-            this.addSubscriber(cameraUid, subId)
+            const EVENT_SUB_ID = 'EVENT'
+            this.addSubscriber(cameraUid, EVENT_SUB_ID)
               .then(() => {
                 console.log('[RTMP] camera message: addSubscriber: success', {
                   cameraUid,
@@ -466,12 +466,29 @@ class AppServer extends AbstractStartable {
                 })
               })
               .finally(() => {
+                // delete event subscriber..
+                this.deleteSubscriber(cameraUid, EVENT_SUB_ID)
+                  .then(() => {
+                    console.log(
+                      '[RTMP] camera message: deleteSubscriber: success',
+                      {
+                        cameraUid,
+                      },
+                    )
+                  })
+                  .catch((err) => {
+                    console.log(
+                      '[RTMP] camera message: deleteSubscriber: error',
+                      {
+                        cameraUid,
+                        err,
+                      },
+                    )
+                  })
                 this.mqtt?.publish(
                   mqttTopic(cameraUid),
                   message.type.toUpperCase() as CameraMessageType,
                 )
-                // go ahead remove event subscriber
-                this.deleteSubscriber(subId, cameraUid)
               })
           },
           error: (err) => {

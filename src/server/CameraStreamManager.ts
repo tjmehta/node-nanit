@@ -55,7 +55,6 @@ export class CameraStreamManager extends AbstractStartable {
       try {
         await this.start({ force: true })
       } catch (err) {
-        this.cameraStreamSubscriberIds.delete(subscriberId)
         console.error(
           '[StreamManager] addSubscriber: one added: forceStart error',
           {
@@ -65,7 +64,16 @@ export class CameraStreamManager extends AbstractStartable {
             subscriberCount: this.cameraStreamSubscriberIds.size,
           },
         )
-
+        this.deleteSubscriber(subscriberId).catch((err) => {
+          console.error(
+            '[StreamManager] addSubscriber: one added: deleteSubscriber error',
+            {
+              err,
+              cameraUid: this.cameraUid,
+              id: subscriberId,
+            },
+          )
+        })
         return Promise.reject(err)
       }
     }
@@ -245,9 +253,8 @@ export class CameraStreamManager extends AbstractStartable {
 
   start = memoizeConcurrent(async (opts?: StartOptsType): Promise<void> => {
     BaseError.assert(!this.stoppedForever, 'stopped forever')
-    this.cancelDelayedStop('start')
     const p = super.start(opts)
-    this.cancelDelayedStop('delayedStop:reset')
+    this.cancelDelayedStop('start')
     this.delayedStop().catch((err) => {
       console.error('[StreamManager] start: delayedStop: error', {
         err,
