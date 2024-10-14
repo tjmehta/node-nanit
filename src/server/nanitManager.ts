@@ -120,12 +120,12 @@ export class NanitManager {
     return auth
   }
 
-  async refreshSession(resetCameraSocketManagers: boolean = false) {
+  async refreshSession() {
     const nanit = this.nanit
 
     if (nanit.auth.status === NanitAuthStatus.AUTHED) {
       try {
-        await nanit.refreshSession(resetCameraSocketManagers)
+        await nanit.refreshSession()
       } catch (err: any) {
         if (err instanceof StatusCodeError && err.status === 401) {
           this.clearSession()
@@ -158,8 +158,6 @@ const nanitManager = new NanitManager()
 
 export default nanitManager
 
-export async function refreshSession(
-  resetCameraSocketManagers: boolean = true,
-) {
-  return nanitManager.refreshSession(resetCameraSocketManagers)
+export async function refreshSession() {
+  return nanitManager.refreshSession()
 }

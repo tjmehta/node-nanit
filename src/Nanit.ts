@@ -5,6 +5,7 @@ import ApiClient, {
 } from 'simple-api-client'
 import validateBabyCameras, { CameraType } from './validateBabyCameras'
 import validateSession, { SessionType } from './validateSession'
+import { client as proto } from './proto/nanit'
 
 import BaseError from 'baseerr'
 import memoizeConcurrent from 'memoize-concurrent'
@@ -13,13 +14,16 @@ import validateBabyMessages, {
   CameraMessage,
   CameraMessageType,
 } from './validateBabyMessage'
-import CameraSocketManager from './CameraSocketManager'
 import { Observable } from 'rxjs'
 import timeout from 'abortable-timeout'
 import envVar from 'env-var'
-import { StatusCodeError as WebSockerStatusCodeError } from './WebSocketManager'
-import { state } from 'abstract-startable'
 import EventEmitter from 'events'
+import { WebSocket } from 'ws'
+import {
+  CameraSocketsManager,
+  StatusCodeError as WebSockerStatusCodeError,
+} from './CameraSocketsManager'
+import onceFirstEvent from './utils/onFirstEvent'
 const { get } = envVar
 
 export const NANIT_REQUEST_TIMEOUT = get('NANIT_REQUEST_TIMEOUT')
@@ -28,6 +32,7 @@ export const NANIT_REQUEST_TIMEOUT = get('NANIT_REQUEST_TIMEOUT')
 const NANIT_EVENTS_MESSAGE_MAX_AGE = get('NANIT_EVENTS_MESSAGE_MAX_AGE')
   .default(1000 * 60)
   .asIntPositive()
+const DEFAULT_HANDSHAKE_TIMEOUT = 1000 * 15
 
 export type CredentialsType = {
   email: string
@@ -46,12 +51,17 @@ export enum NanitAuthStatus {
   AUTHED = 'AUTHED',
 }
 
+class NanitError extends BaseError<{}> {}
+
 export default class Nanit extends ApiClient {
+  protected lastSocketRequestId = 0
   credentials: CredentialsType | null | undefined
   sessionCache: { value: SessionType; date: Date } | null | undefined
   mfaSessionCache: { value: MfaSessionType; date: Date } | null | undefined
-  cameraSocketManagers = new Map<string, CameraSocketManager>()
   camerasCache: { value: Array<CameraType>; date: Date } | null | undefined
+  cameraSocketsManager = new CameraSocketsManager({
+    handshakeTimeout: DEFAULT_HANDSHAKE_TIMEOUT,
+  })
 
   get authStatus() {
     const auth = this.auth
@@ -120,6 +130,7 @@ export default class Nanit extends ApiClient {
         'X-Nanit-Service': '3.18.1 (767)',
         'X-Nanit-Platform': 'iPad Pro (12.9-inch) (3rd generation)',
       }
+
       if (
         path !== 'login' &&
         path !== 'tokens/refresh' &&
@@ -153,6 +164,7 @@ export default class Nanit extends ApiClient {
       }
     })
 
+    // constructor
     if (opts?.credentials != null) {
       this.credentials = opts.credentials
     }
@@ -186,7 +198,7 @@ export default class Nanit extends ApiClient {
       ) {
         // unauthorized error on a non-login request, refresh token and retry
         const { refreshSession } = await import('./server/nanitManager')
-        await refreshSession(true /* resetCameraSocketManagers */)
+        await refreshSession()
 
         return await super.json<JsonType, QueryType>(path, expectedStatus, init)
       }
@@ -240,16 +252,19 @@ export default class Nanit extends ApiClient {
     async (code: string) => {
       if (this.sessionCache != null) return this.sessionCache.value
 
-      BaseError.assert(
+      NanitError.assert(
         this.mfaSessionCache != null,
         'mfa session required (login first)',
       )
 
       const email = this.credentials?.email
-      BaseError.assert(email != null, 'auth email required (login first)')
+      NanitError.assert(email != null, 'auth email required (login first)')
 
       const password = this.credentials?.password
-      BaseError.assert(password != null, 'auth password required (login first)')
+      NanitError.assert(
+        password != null,
+        'auth password required (login first)',
+      )
 
       const json = await this.post<{
         email: string
@@ -278,10 +293,8 @@ export default class Nanit extends ApiClient {
   )
 
   refreshSession = memoizeConcurrent(
-    async (
-      resetCameraSocketManagers: boolean = false,
-    ): Promise<SessionType> => {
-      BaseError.assert(
+    async (): Promise<SessionType> => {
+      NanitError.assert(
         this.sessionCache != null,
         'session required (login first)',
       )
@@ -299,10 +312,6 @@ export default class Nanit extends ApiClient {
       this.sessionCache = {
         value: validateSession(json),
         date: new Date(),
-      }
-
-      if (resetCameraSocketManagers) {
-        await this.resetCameraSocketManagers()
       }
 
       return this.sessionCache.value
@@ -357,7 +366,7 @@ export default class Nanit extends ApiClient {
   ): Observable<CameraMessage> & { _ee: EventEmitter } {
     const ee = new EventEmitter()
     const observable = new Observable<CameraMessage>((subscriber) => {
-      console.log('CameraSocketManager: pollCameraMessages: subscribe')
+      console.log('[Nanit] pollCameraMessages: subscribe')
       let lastMessage: CameraMessage | null = null
       let requestState: {
         promise: Promise<Array<CameraMessage>> | null
@@ -375,7 +384,7 @@ export default class Nanit extends ApiClient {
             signal: controller.signal,
           }),
           timeout(NANIT_REQUEST_TIMEOUT, controller.signal).then(() =>
-            Promise.reject(new Error('timeout')),
+            Promise.reject(new NanitError('timeout')),
           ),
         ])
         requestState = {
@@ -392,10 +401,7 @@ export default class Nanit extends ApiClient {
                 messageAge < NANIT_EVENTS_MESSAGE_MAX_AGE &&
                 (lastMessage == null || message.time > lastMessage.time)
               ) {
-                console.log(
-                  'CameraSocketManager: pollCameraMessages: message',
-                  message,
-                )
+                console.log('[Nanit] pollCameraMessages: message', message)
                 lastMessage = message
                 subscriber.next(message)
               }
@@ -414,26 +420,21 @@ export default class Nanit extends ApiClient {
 
       const interval = setInterval(() => {
         if (requestState.promise != null) {
-          console.log(
-            'CameraSocketManager: pollCameraMessages: skip makeRequest',
-          )
+          console.log('[Nanit] pollCameraMessages: skip makeRequest')
           return
         }
         // spammy logging
-        // console.log('CameraSocketManager: pollCameraMessages: makeRequest')
+        // console.log('[Nanit] pollCameraMessages: makeRequest')
         makeRequest()
       }, intervalMs)
 
       ee.on('testMessage', (message) => {
-        console.log(
-          'CameraSocketManager: pollCameraMessages: testMessage',
-          message,
-        )
+        console.log('[Nanit] pollCameraMessages: testMessage', message)
         subscriber.next(message)
       })
 
       return () => {
-        console.log('CameraSocketManager: pollCameraMessages: unsubscribe')
+        console.log('[Nanit] pollCameraMessages: unsubscribe')
         clearInterval(interval)
         ee.removeAllListeners()
         requestState.controller?.abort()
@@ -444,153 +445,212 @@ export default class Nanit extends ApiClient {
     return observable as Observable<CameraMessage> & { _ee: EventEmitter }
   }
 
-  private resetCameraSocketManagers = async () => {
-    await Promise.all(
-      [...this.cameraSocketManagers.keys()].map((cameraUID) =>
-        this.resetCameraSocketManager(cameraUID),
-      ),
+  private async getCameraSocket(
+    cameraUID: string,
+    attempt: number = 1,
+  ): Promise<WebSocket> {
+    NanitError.assert(
+      this.sessionCache != null,
+      'session required (login first)',
     )
+    const debug = {
+      cameraUID,
+      attempt,
+    }
+    console.log('[Nanit] getCameraSocket', debug)
+
+    try {
+      const ws = await this.cameraSocketsManager.getCameraSocket(cameraUID, {
+        headers: {
+          Authorization: `token ${this.sessionCache.value.token}`,
+        },
+      })
+      console.log('[Nanit] getCameraSocket: success', debug)
+      return ws
+    } catch (err) {
+      if (err instanceof WebSockerStatusCodeError && err.status === 401) {
+        // unauthorized error on a non-login request, refresh token and retry
+        const { refreshSession } = await import('./server/nanitManager')
+        await refreshSession()
+
+        if (attempt < 2) {
+          console.warn('[Nanit] getCameraSocket: retry', {
+            ...debug,
+            attempt,
+            err,
+          })
+          return this.getCameraSocket(cameraUID, attempt + 1)
+        }
+      }
+
+      console.error('[Nanit] getCameraSocket: error', {
+        ...debug,
+        err,
+      })
+      throw err
+    }
   }
 
-  private getCameraSocketManager = memoizeConcurrent(
-    async (cameraUID: string): Promise<CameraSocketManager> => {
-      BaseError.assert(
-        this.sessionCache != null,
-        'session required (login first)',
-      )
-      console.log('CameraSocketManager: getCameraSocketManager', {
+  protected generateSocketRequestId(): number {
+    return ++this.lastSocketRequestId
+  }
+
+  async socketRequest<Response extends proto.Response>(
+    cameraUID: string,
+    request: proto.Request,
+  ): Promise<Response> {
+    const ws = await this.getCameraSocket(cameraUID)
+
+    return new Promise((resolve, reject) => {
+      const debug = {
         cameraUID,
-      })
-
-      let cameraSocketManager =
-        this.cameraSocketManagers.get(cameraUID) ??
-        new CameraSocketManager(cameraUID, {
-          ws: {
-            handshakeTimeout: 1000 * 10,
-            headers: {
-              Authorization: `Bearer ${
-                this.sessionCache.value.token ??
-                this.sessionCache.value.accessToken
-              }`,
-            },
-          },
-          requestTimeoutMs: NANIT_REQUEST_TIMEOUT * 2,
-        })
-
-      this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
-
-      if (
-        cameraSocketManager.state === state.STOPPING ||
-        cameraSocketManager.state === state.STOPPED
-      ) {
-        await this.refreshSession(false /* resetCameraSocketManagers */)
-        return this.resetCameraSocketManager(cameraUID)
+        requestId: request.id,
       }
 
-      try {
-        console.log(
-          'CameraSocketManager: getCameraSocketManager: cameraSocketManager start',
-          {
-            cameraUID,
-          },
-        )
-        await cameraSocketManager.start({ force: true })
-        console.log(
-          'CameraSocketManager: getCameraSocketManager: cameraSocketManager success',
-          {
-            cameraUID,
-          },
-        )
-        return cameraSocketManager
-      } catch (err) {
-        console.warn(
-          'CameraSocketManager: getCameraSocketManager: cameraSocketManager start: error',
-          { cameraUID, err },
-        )
-        if (err instanceof WebSockerStatusCodeError && err.status === 401) {
-          await this.refreshSession(false /* resetCameraSocketManagers */)
-          return this.resetCameraSocketManager(cameraUID)
+      /*
+       * setup event handlers
+       */
+      // listen for response
+      ws.on('message', handleMessage)
+      // listen for socket close
+      const removeListeners = onceFirstEvent(ws, {
+        close: handleUnexpectedCloseBeforeResponse,
+      })
+      // race request timeout
+      const timeoutId = setTimeout(handleRequestTimeout, NANIT_REQUEST_TIMEOUT)
+
+      /*
+       * send message
+       */
+      const message = proto.Message.create({
+        type: proto.Message.Type.REQUEST,
+        request,
+      })
+      ws.send(proto.Message.encode(message).finish(), (err) => {
+        if (err != null) {
+          console.warn('[Nanit] request: send error', {
+            ...debug,
+            err,
+          })
+          reject(err)
         }
-        throw err
+      })
+
+      /*
+       * handlers
+       */
+      function handleUnexpectedCloseBeforeResponse() {
+        console.warn('[Nanit] request: socket closed', debug)
+        cleanup()
+        reject(new NanitError('request: socket closed', debug))
       }
-    },
-  )
+      function handleRequestTimeout() {
+        console.warn('[Nanit] request: timeout', debug)
+        cleanup()
+        reject(new NanitError('request: timeout', debug))
+      }
+      function handleMessage(data: Buffer) {
+        const response = proto.Response.decode(new Uint8Array(data))
 
-  private resetCameraSocketManager = memoizeConcurrent(
-    async (cameraUID: string): Promise<CameraSocketManager> => {
-      BaseError.assert(
-        this.sessionCache != null,
-        'session required (login first)',
-      )
-      console.log('CameraSocketManager: resetCameraSocketManager', {
-        cameraUID,
-      })
-      let cameraSocketManager = this.cameraSocketManagers.get(cameraUID)
+        // could be spammy..
+        // if (response.requestId == null) {
+        //   console.log('[Nanit] unexpected response', {})
+        //   return
+        // }
+        if (response.requestId != request.id) {
+          // another request's response
+          return
+        }
 
-      if (cameraSocketManager != null) {
-        this.cameraSocketManagers.delete(cameraUID)
-        console.log('CameraSocketManager: resetCameraSocketManager: stop', {
-          cameraUID,
-        })
-        await cameraSocketManager.stop().catch((err) => {
-          console.warn(
-            'CameraSocketManager: resetCameraSocketManager: stop: error',
-            { cameraUID, err },
-          )
-        })
-        console.log(
-          'CameraSocketManager: resetCameraSocketManager: stop: success',
-          {
-            cameraUID,
-          },
-        )
+        handleResponse(response)
+      }
+      function handleResponse(response: proto.Response) {
+        console.log('[Nanit] response', debug)
+        cleanup()
+        resolve(response as Response)
       }
 
-      cameraSocketManager = new CameraSocketManager(cameraUID, {
-        ws: {
-          handshakeTimeout: 1000 * 10,
-          headers: {
-            Authorization: `Bearer ${
-              this.sessionCache.value.token ??
-              this.sessionCache.value.accessToken
-            }`,
-          },
-        },
-        requestTimeoutMs: NANIT_REQUEST_TIMEOUT * 2,
-      })
-      this.cameraSocketManagers.set(cameraUID, cameraSocketManager)
-      console.log('CameraSocketManager: resetCameraSocketManager: start', {
-        cameraUID,
-      })
-      await cameraSocketManager.start().catch((err) => {
-        console.warn(
-          'CameraSocketManager: resetCameraSocketManager: start: error',
-          { cameraUID, err },
-        )
-        throw err
-      })
-      console.log(
-        'CameraSocketManager: resetCameraSocketManager: start: success',
-        {
-          cameraUID,
-        },
-      )
-
-      return cameraSocketManager
-    },
-  )
+      /*
+       * cleanup
+       */
+      function cleanup() {
+        removeListeners()
+        ws.removeListener('message', handleMessage)
+        clearTimeout(timeoutId)
+      }
+    })
+  }
 
   async startStreaming(cameraUID: string, rtmpUrl: string): Promise<{}> {
-    const socket = await this.getCameraSocketManager(cameraUID)
-    const payload = await socket.startStreaming(rtmpUrl)
+    const debug = {
+      cameraUID,
+      rtmpUrl,
+    }
+    console.log('[Nanit] startStreaming', debug)
 
-    return payload
+    const request = proto.Request.create({
+      id: this.generateSocketRequestId(),
+      type: proto.RequestType.PUT_STREAMING,
+      streaming: proto.Streaming.create({
+        id: proto.StreamIdentifier.MOBILE,
+        status: proto.Streaming.Status.STARTED,
+        rtmpUrl,
+        attempts: 1,
+      }),
+    })
+    try {
+      const res = await this.socketRequest(cameraUID, request)
+      const json = res.toJSON()
+
+      console.log('[Nanit] startStreaming: success', {
+        ...debug,
+        res: json,
+      })
+
+      return json
+    } catch (err) {
+      console.warn('[Nanit] startStreaming: error', {
+        ...debug,
+        err,
+      })
+      throw err
+    }
   }
 
   async stopStreaming(cameraUID: string, rtmpUrl: string): Promise<{}> {
-    const socket = await this.getCameraSocketManager(cameraUID)
-    const payload = await socket.stopStreaming(rtmpUrl)
+    const debug = {
+      cameraUID,
+      rtmpUrl,
+    }
+    console.log('[Nanit] stopStreaming', debug)
 
-    return payload
+    const request = proto.Request.create({
+      id: this.generateSocketRequestId(),
+      type: proto.RequestType.PUT_STREAMING,
+      streaming: proto.Streaming.create({
+        id: proto.StreamIdentifier.MOBILE,
+        status: proto.Streaming.Status.STOPPED,
+        rtmpUrl,
+        attempts: 1,
+      }),
+    })
+
+    try {
+      const res = await this.socketRequest(cameraUID, request)
+      const json = res.toJSON()
+
+      console.log('[Nanit] stopStreaming: success', {
+        ...debug,
+        res: json,
+      })
+
+      return json
+    } catch (err) {
+      console.warn('[Nanit] stopStreaming: error', {
+        ...debug,
+        err,
+      })
+      return {}
+    }
   }
 }
