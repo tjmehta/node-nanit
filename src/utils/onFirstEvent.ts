@@ -6,7 +6,7 @@ export default function onceFirstEvent<
   E extends EventEmitter,
   K extends string = string,
   Events extends Record<K, Listener> = Record<K, Listener>,
->(ee: E, events: Events) {
+>(ee: E, events: Events): () => void {
   for (const eventName of Object.keys(events)) {
     ee.once(eventName, function (...args) {
       // @ts-ignore maintain this whatever it is
@@ -15,9 +15,12 @@ export default function onceFirstEvent<
       cleanup()
     })
   }
+
   function cleanup() {
     for (const eventName of Object.keys(events)) {
       ee.removeListener(eventName, events[eventName as K])
     }
   }
+
+  return cleanup
 }
