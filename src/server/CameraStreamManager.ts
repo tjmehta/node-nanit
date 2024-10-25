@@ -67,6 +67,16 @@ export class CameraStreamManager extends AbstractStartable {
         id: subscriberId,
         subscriberCount: this.cameraStreamSubscriberIds.size,
       })
+      BaseError.assert(
+        this.cameraStreamSubscriberIds.has(subscriberId),
+        'subscriber already deleted',
+        {
+          status: 409,
+          cameraUid: this.cameraUid,
+          id: subscriberId,
+          subscriberCount: currSize,
+        },
+      )
       return currSize
     } catch (err) {
       console.error('[StreamManager] addSubscriber: one added: start: error', {
@@ -95,6 +105,7 @@ export class CameraStreamManager extends AbstractStartable {
     if (this.cameraStreamSubscriberIds.size === 0) {
       console.log('[StreamManager] deleteSubscriber: none left: delayedStop', {
         cameraUid: this.cameraUid,
+        id: subscriberId,
         subscriberCount: this.cameraStreamSubscriberIds.size,
       })
       try {
@@ -113,6 +124,7 @@ export class CameraStreamManager extends AbstractStartable {
     } else {
       console.log('[StreamManager] deleteSubscriber: remaining subscribers', {
         cameraUid: this.cameraUid,
+        id: subscriberId,
         subscriberCount: this.cameraStreamSubscriberIds.size,
       })
     }

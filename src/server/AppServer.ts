@@ -366,6 +366,7 @@ class AppServer extends AbstractStartable {
             cameraUid,
             id,
             attempt,
+            subscriberCount: count,
           })
           return count
         } catch (err: any) {
@@ -375,6 +376,10 @@ class AppServer extends AbstractStartable {
             id,
             attempt,
           })
+          if (err.status && err.status === 409) {
+            // non-retryable conflict
+            throw err
+          }
           // retry all errors, including timeout
           return retry(err)
         }
@@ -385,9 +390,26 @@ class AppServer extends AbstractStartable {
   private deleteSubscriber = async (cameraUid: string, id: string) => {
     const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
-    assert(cameraStreamManager, 'cameraStreamManager not found')
+    console.log('[RTMP] deleteSubscriber: attempt', {
+      cameraUid,
+      id,
+      cameraStreamManagerExists: !!cameraStreamManager,
+    })
 
-    await cameraStreamManager.deleteSubscriber(id)
+    assert(cameraStreamManager, 'cameraStreamManager not found')
+    try {
+      await cameraStreamManager.deleteSubscriber(id)
+      console.log('[RTMP] deleteSubscriber: success', {
+        cameraUid,
+        id,
+      })
+    } catch (err) {
+      console.log('[RTMP] deleteSubscriber: error', {
+        err,
+        cameraUid,
+        id,
+      })
+    }
   }
 
   private async startRtmpServer() {
