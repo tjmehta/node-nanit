@@ -647,6 +647,7 @@ class AppServer extends AbstractStartable {
               err,
             })
             this.cameraMessageSubscriptions.delete(cameraUid)
+            process.exit(1)
           },
           complete: () => {
             console.log('[RTMP] camera message: complete', {
@@ -654,6 +655,7 @@ class AppServer extends AbstractStartable {
               babyUid,
             })
             this.cameraMessageSubscriptions.delete(cameraUid)
+            process.exit(1)
           },
         })
 
