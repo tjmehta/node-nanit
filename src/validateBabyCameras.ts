@@ -44,9 +44,9 @@ function validateCamera(camera: any): CameraType | null {
     throw new InvalidCameraError('invalid camera', { camera })
   }
   // TODO: validate enum
-  if (typeof camera.mode != 'string') {
-    throw new InvalidCameraError('invalid camera', { camera })
-  }
+  // if (typeof camera.mode != 'string') {
+  //   throw new InvalidCameraError('invalid camera', { camera })
+  // }
   if (typeof camera.connected != 'boolean') {
     throw new InvalidCameraError('invalid camera', { camera })
   }
@@ -54,15 +54,15 @@ function validateCamera(camera: any): CameraType | null {
   if (typeof camera.hardware != 'string') {
     throw new InvalidCameraError('invalid camera', { camera })
   }
-  if (typeof camera.active != 'boolean') {
-    throw new InvalidCameraError('invalid camera', { camera })
-  }
-  if (typeof camera.public_address != 'string') {
-    throw new InvalidCameraError('invalid camera', { camera })
-  }
-  if (typeof camera.private_address != 'string') {
-    throw new InvalidCameraError('invalid camera', { camera })
-  }
+  // if (typeof camera.active != 'boolean') {
+  //   throw new InvalidCameraError('invalid camera', { camera })
+  // }
+  // if (typeof camera.public_address != 'string') {
+  //   throw new InvalidCameraError('invalid camera', { camera })
+  // }
+  // if (typeof camera.private_address != 'string') {
+  //   throw new InvalidCameraError('invalid camera', { camera })
+  // }
   if (typeof camera.speaker != 'boolean') {
     throw new InvalidCameraError('invalid camera', { camera })
   }
