@@ -10,6 +10,7 @@ import memoizeConcurrent from 'memoize-concurrent'
 import createDeferredPromise, { DeferredPromise } from 'p-defer'
 import BaseError from 'baseerr'
 import { NANIT_REQUEST_TIMEOUT } from '../Nanit'
+
 const { get } = envVar
 
 const RTMP_HOST = get('RTMP_HOST').required().asString()
@@ -27,8 +28,12 @@ export class CameraStreamManager extends AbstractStartable {
   private stoppedForever: boolean = false
   private cameraStreamSubscriberIds = new Set<string>()
 
+  static rtmpPath(cameraUid: string, opts: { leadingSlash?: boolean } = {}) {
+    return `${opts.leadingSlash ? '/' : ''}${cameraUid}`
+  }
+
   static rtmpUrl(cameraUid: string) {
-    return `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${cameraUid}`
+    return `rtmp://${RTMP_HOST}:${RTMP_PORT}/${this.rtmpPath(cameraUid)}`
   }
 
   constructor(nanitManager: NanitManager, cameraUid: string) {
@@ -337,6 +342,7 @@ export class CameraStreamManager extends AbstractStartable {
 
       if (!opts?.force) this.donePublishingDeferred = createDeferredPromise()
 
+      this.cameraStreamSubscriberIds.clear()
       await nanit.stopStreaming(this.cameraUid, rtmpUrl)
       console.log('[StreamManager] _stop: stopStreaming success', {
         cameraUid: this.cameraUid,

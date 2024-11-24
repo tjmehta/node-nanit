@@ -18,6 +18,8 @@ import mqtt from 'async-mqtt'
 import { CameraStreamManager } from './CameraStreamManager'
 import promiseBackoff from 'promise-backoff'
 import EventEmitter from 'events'
+import context from 'node-media-server/src/node_core_ctx.js'
+
 const { get } = envVar
 
 const HTTP_PORT = get('HTTP_PORT').default(3000).asPortNumber()
@@ -412,6 +414,64 @@ class AppServer extends AbstractStartable {
     }
   }
 
+  private async onPrePlay(label: string, id: string, path: string, args: any) {
+    const cameraUid = path.split('/').pop() ?? ''
+    assert(cameraUid, 'cameraUid required')
+    console.log(`[RTMP] ${label} ${path}`, { cameraUid, id })
+
+    try {
+      console.log(`[RTMP] ${label}: addSubscriber:`, {
+        cameraUid,
+        id,
+        date: Date.now(),
+      })
+      await this.addSubscriber(cameraUid, id)
+      console.log(`[RTMP] ${label}: addSubscriber: success`, {
+        cameraUid,
+        id,
+        date: Date.now(),
+      })
+      setTimeout(() => {
+        // check if sub is idle
+        const sessionIsIdle = context.idlePlayers.has(id)
+        if (!sessionIsIdle) return
+        console.log(`[RTMP] ${label}: session is idle`, {
+          cameraUid,
+          id,
+        })
+        this.deleteSubscriber(cameraUid, id)
+          .then(() => {
+            console.log(
+              `[RTMP] ${label}: session is idle: deleteSubscriber: success`,
+              {
+                cameraUid,
+                id,
+                date: Date.now(),
+              },
+            )
+          })
+          .catch((err) => {
+            console.log(
+              `[RTMP] ${label}: session is idle: deleteSubscriber: error`,
+              {
+                cameraUid,
+                id,
+                date: Date.now(),
+                err,
+              },
+            )
+          })
+      }, 200)
+    } catch (err: any) {
+      console.log(`[RTMP] ${label}: addSubscriber: error`, {
+        err,
+        cameraUid,
+        id,
+        date: Date.now(),
+      })
+    }
+  }
+
   private async startRtmpServer() {
     const nms = new NodeMediaServer({
       rtmp: {
@@ -443,6 +503,7 @@ class AppServer extends AbstractStartable {
         console.warn(`[RTMP] prePublish ${path}: unexpected!`, {
           cameraUid,
           id,
+          date: Date.now(),
         })
         return
       }
@@ -463,7 +524,11 @@ class AppServer extends AbstractStartable {
     nms.on('donePublish', (id, path, args) => {
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
-      console.log(`[RTMP] donePublish ${path}`, { cameraUid, id })
+      console.log(`[RTMP] donePublish ${path}`, {
+        cameraUid,
+        id,
+        date: Date.now(),
+      })
 
       const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
@@ -471,6 +536,7 @@ class AppServer extends AbstractStartable {
         console.warn(`[RTMP] donePublish ${path}: unexpected!`, {
           cameraUid,
           id,
+          date: Date.now(),
         })
         return
       }
@@ -478,28 +544,23 @@ class AppServer extends AbstractStartable {
       cameraStreamManager.donePublish()
     })
 
+    nms.on('preConnect', async (id, path, args) => {
+      this.onPrePlay('preConnect', id, path, args)
+    })
+
     nms.on('prePlay', async (id, path, args) => {
+      this.onPrePlay('prePlay', id, path, args)
+    })
+
+    nms.on('postPlay', (id, path, args) => {
+      // only happens on successful play
       const cameraUid = path.split('/').pop() ?? ''
       assert(cameraUid, 'cameraUid required')
-      console.log(`[RTMP] prePlay ${path}`, { cameraUid, id })
-
-      try {
-        console.log('[RTMP] prePlay: addSubscriber:', {
-          cameraUid,
-          id,
-        })
-        await this.addSubscriber(cameraUid, id)
-        console.log('[RTMP] prePlay: addSubscriber: success', {
-          cameraUid,
-          id,
-        })
-      } catch (err: any) {
-        console.log('[RTMP] prePlay: addSubscriber: error', {
-          err,
-          cameraUid,
-          id,
-        })
-      }
+      console.log(`[RTMP] postPlay ${path}`, {
+        cameraUid,
+        id,
+        date: Date.now(),
+      })
     })
 
     // donePlay is called when the client is done playing
@@ -514,12 +575,14 @@ class AppServer extends AbstractStartable {
           console.log('[RTMP] donePlay: deleteSubscriber: success', {
             cameraUid,
             id,
+            date: Date.now(),
           })
         })
         .catch((err) => {
           console.log('[RTMP] donePlay: deleteSubscriber: error', {
             cameraUid,
             id,
+            date: Date.now(),
             err,
           })
         })
