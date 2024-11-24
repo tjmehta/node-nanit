@@ -544,9 +544,9 @@ class AppServer extends AbstractStartable {
       cameraStreamManager.donePublish()
     })
 
-    nms.on('preConnect', async (id, path, args) => {
-      this.onPrePlay('preConnect', id, path, args)
-    })
+    // nms.on('preConnect', async (id, path, args) => {
+    //   this.onPrePlay('preConnect', id, path, args)
+    // })
 
     nms.on('prePlay', async (id, path, args) => {
       this.onPrePlay('prePlay', id, path, args)
