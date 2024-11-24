@@ -19,6 +19,9 @@ import { CameraStreamManager } from './CameraStreamManager'
 import promiseBackoff from 'promise-backoff'
 import EventEmitter from 'events'
 import context from 'node-media-server/src/node_core_ctx.js'
+import BaseError from 'baseerr'
+
+class AppServerError extends BaseError {}
 
 const { get } = envVar
 
@@ -235,7 +238,11 @@ class AppServer extends AbstractStartable {
       const nanit = this.nanitManager.get()
       const auth = nanit.auth
 
-      assert(auth.status === NanitAuthStatus.MFA_REQUIRED, 'invalid auth state')
+      AppServerError.assert(
+        auth.status === NanitAuthStatus.MFA_REQUIRED,
+        'invalid auth state',
+        { status: auth.status },
+      )
 
       await this.nanitManager.loginMfa(mfaCode)
       ctx.body = 'Login successful'
@@ -398,7 +405,14 @@ class AppServer extends AbstractStartable {
       cameraStreamManagerExists: !!cameraStreamManager,
     })
 
-    assert(cameraStreamManager, 'cameraStreamManager not found')
+    AppServerError.assert(
+      cameraStreamManager,
+      'cameraStreamManager not found',
+      {
+        cameraUid,
+        id,
+      },
+    )
     try {
       await cameraStreamManager.deleteSubscriber(id)
       console.log('[RTMP] deleteSubscriber: success', {
@@ -416,7 +430,7 @@ class AppServer extends AbstractStartable {
 
   private async onPrePlay(label: string, id: string, path: string, args: any) {
     const cameraUid = path.split('/').pop() ?? ''
-    assert(cameraUid, 'cameraUid required')
+    AppServerError.assert(cameraUid, 'cameraUid required', { path, id })
     console.log(`[RTMP] ${label} ${path}`, { cameraUid, id })
 
     try {
@@ -490,7 +504,7 @@ class AppServer extends AbstractStartable {
 
     nms.on('prePublish', (id, path, args) => {
       const cameraUid = path.split('/').pop() ?? ''
-      assert(cameraUid, 'cameraUid required')
+      AppServerError.assert(cameraUid, 'cameraUid required', { path, id })
       console.log(`[RTMP] prePublish ${path}`, {
         cameraUid,
         id,
@@ -513,7 +527,7 @@ class AppServer extends AbstractStartable {
 
     // nms.on('postPublish', (id, path, args) => {
     //   const cameraUid = path.split('/').pop() ?? ''
-    //   assert(cameraUid, 'cameraUid required')
+    //   AppServerError.assert(cameraUid, 'cameraUid required', { path, id })
     //   console.log(`[RTMP] postPublish ${path}`, {
     //     cameraUid,
     //     id,
@@ -523,7 +537,7 @@ class AppServer extends AbstractStartable {
 
     nms.on('donePublish', (id, path, args) => {
       const cameraUid = path.split('/').pop() ?? ''
-      assert(cameraUid, 'cameraUid required')
+      AppServerError.assert(cameraUid, 'cameraUid required', { path, id })
       console.log(`[RTMP] donePublish ${path}`, {
         cameraUid,
         id,
@@ -555,7 +569,7 @@ class AppServer extends AbstractStartable {
     nms.on('postPlay', (id, path, args) => {
       // only happens on successful play
       const cameraUid = path.split('/').pop() ?? ''
-      assert(cameraUid, 'cameraUid required')
+      AppServerError.assert(cameraUid, 'cameraUid required', { path, id })
       console.log(`[RTMP] postPlay ${path}`, {
         cameraUid,
         id,
@@ -566,7 +580,7 @@ class AppServer extends AbstractStartable {
     // donePlay is called when the client is done playing
     nms.on('donePlay', (id, path) => {
       const cameraUid = path.split('/').pop() ?? ''
-      assert(cameraUid, 'cameraUid required')
+      AppServerError.assert(cameraUid, 'cameraUid required', { path, id })
       console.log(`[RTMP] donePlay`, { cameraUid, id })
       console.log(`[RTMP] donePlay ${path}`, { cameraUid, id })
 
