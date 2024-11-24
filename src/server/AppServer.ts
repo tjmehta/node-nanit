@@ -47,6 +47,13 @@ function cameraRtmpUrl(cameraUid: string): string {
 function mqttTopic(cameraUid: string): string {
   return `${MQTT_PREFIX}/camera/${cameraUid}/events`
 }
+function normalizePath(path: string): string {
+  if (path.length === 0) return path // noop
+  // remove trailing slash
+  if (path.charAt(path.length - 1) === '/') return path.slice(0, -1)
+  // noop
+  return path
+}
 
 class AppServer extends AbstractStartable {
   // subId -> TimeoutId
@@ -429,7 +436,8 @@ class AppServer extends AbstractStartable {
   }
 
   private async onPrePlay(label: string, id: string, path: string, args: any) {
-    const cameraUid = path.split('/').pop() ?? ''
+    const normalizedPath = normalizePath(path)
+    const cameraUid = normalizedPath.split('/').pop() ?? ''
     AppServerError.assert(cameraUid, 'cameraUid required', { path, id, camera })
     console.log(`[RTMP] ${label} ${path}`, { cameraUid, id })
 
@@ -503,7 +511,8 @@ class AppServer extends AbstractStartable {
     })
 
     nms.on('prePublish', (id, path, args) => {
-      const cameraUid = path.split('/').pop() ?? ''
+      const normalizedPath = normalizePath(path)
+      const cameraUid = normalizedPath.split('/').pop() ?? ''
       AppServerError.assert(cameraUid, 'cameraUid required', {
         path,
         id,
@@ -530,8 +539,13 @@ class AppServer extends AbstractStartable {
     })
 
     // nms.on('postPublish', (id, path, args) => {
-    //   const cameraUid = path.split('/').pop() ?? ''
-    //   AppServerError.assert(cameraUid, 'cameraUid required', { path, id, camera })
+    //   const normalizedPath = normalizePath(path)
+    //   const cameraUid = normalizedPath.split('/').pop() ?? ''
+    //   AppServerError.assert(cameraUid, 'cameraUid required', {
+    //     path,
+    //     id,
+    //     cameraUid,
+    //   })
     //   console.log(`[RTMP] postPublish ${path}`, {
     //     cameraUid,
     //     id,
@@ -540,7 +554,8 @@ class AppServer extends AbstractStartable {
     // })
 
     nms.on('donePublish', (id, path, args) => {
-      const cameraUid = path.split('/').pop() ?? ''
+      const normalizedPath = normalizePath(path)
+      const cameraUid = normalizedPath.split('/').pop() ?? ''
       AppServerError.assert(cameraUid, 'cameraUid required', {
         path,
         id,
@@ -576,7 +591,8 @@ class AppServer extends AbstractStartable {
 
     nms.on('postPlay', (id, path, args) => {
       // only happens on successful play
-      const cameraUid = path.split('/').pop() ?? ''
+      const normalizedPath = normalizePath(path)
+      const cameraUid = normalizedPath.split('/').pop() ?? ''
       AppServerError.assert(cameraUid, 'cameraUid required', {
         path,
         id,
@@ -591,7 +607,8 @@ class AppServer extends AbstractStartable {
 
     // donePlay is called when the client is done playing
     nms.on('donePlay', (id, path) => {
-      const cameraUid = path.split('/').pop() ?? ''
+      const normalizedPath = normalizePath(path)
+      const cameraUid = normalizedPath.split('/').pop() ?? ''
       AppServerError.assert(cameraUid, 'cameraUid required', {
         path,
         id,
