@@ -438,7 +438,11 @@ class AppServer extends AbstractStartable {
   private async onPrePlay(label: string, id: string, path: string, args: any) {
     const normalizedPath = normalizePath(path)
     const cameraUid = normalizedPath.split('/').pop() ?? ''
-    AppServerError.assert(cameraUid, 'cameraUid required', { path, id, camera })
+    AppServerError.assert(cameraUid, 'cameraUid required', {
+      path,
+      id,
+      cameraUid,
+    })
     console.log(`[RTMP] ${label} ${path}`, { cameraUid, id })
 
     try {
@@ -516,7 +520,7 @@ class AppServer extends AbstractStartable {
       AppServerError.assert(cameraUid, 'cameraUid required', {
         path,
         id,
-        camera,
+        cameraUid,
       })
       console.log(`[RTMP] prePublish ${path}`, {
         cameraUid,
@@ -596,7 +600,7 @@ class AppServer extends AbstractStartable {
       AppServerError.assert(cameraUid, 'cameraUid required', {
         path,
         id,
-        camera,
+        cameraUid,
       })
       console.log(`[RTMP] postPlay ${path}`, {
         cameraUid,
@@ -612,7 +616,7 @@ class AppServer extends AbstractStartable {
       AppServerError.assert(cameraUid, 'cameraUid required', {
         path,
         id,
-        camera,
+        cameraUid,
       })
       console.log(`[RTMP] donePlay`, { cameraUid, id })
       console.log(`[RTMP] donePlay ${path}`, { cameraUid, id })

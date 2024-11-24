@@ -33,7 +33,7 @@ export class CameraStreamManager extends AbstractStartable {
   }
 
   static rtmpUrl(cameraUid: string) {
-    return `rtmp://${RTMP_HOST}:${RTMP_PORT}/${this.rtmpPath(cameraUid)}`
+    return `rtmp://${RTMP_HOST}:${RTMP_PORT}/live/${this.rtmpPath(cameraUid)}`
   }
 
   constructor(nanitManager: NanitManager, cameraUid: string) {
