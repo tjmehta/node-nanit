@@ -511,15 +511,15 @@ class AppServer extends AbstractStartable {
       cameraStreamManager.publish()
     })
 
-    nms.on('postPublish', (id, path, args) => {
-      const cameraUid = path.split('/').pop() ?? ''
-      assert(cameraUid, 'cameraUid required')
-      console.log(`[RTMP] postPublish ${path}`, {
-        cameraUid,
-        id,
-        date: Date.now(),
-      })
-    })
+    // nms.on('postPublish', (id, path, args) => {
+    //   const cameraUid = path.split('/').pop() ?? ''
+    //   assert(cameraUid, 'cameraUid required')
+    //   console.log(`[RTMP] postPublish ${path}`, {
+    //     cameraUid,
+    //     id,
+    //     date: Date.now(),
+    //   })
+    // })
 
     nms.on('donePublish', (id, path, args) => {
       const cameraUid = path.split('/').pop() ?? ''
