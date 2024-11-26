@@ -52,6 +52,7 @@ export enum NanitAuthStatus {
 }
 
 class NanitError extends BaseError<{}> {}
+class NanitSocketError extends NanitError {}
 
 export default class Nanit extends ApiClient {
   protected lastSocketRequestId = 0
@@ -505,6 +506,7 @@ export default class Nanit extends ApiClient {
       const debug = {
         cameraUID,
         requestId: request.id,
+        requestType: request.type,
       }
 
       /*
@@ -542,12 +544,12 @@ export default class Nanit extends ApiClient {
       function handleUnexpectedCloseBeforeResponse() {
         console.warn('[Nanit] request: socket closed', debug)
         cleanup()
-        reject(new NanitError('request: socket closed', debug))
+        reject(new NanitSocketError('request: socket closed', debug))
       }
       function handleRequestTimeout() {
         console.warn('[Nanit] request: timeout', debug)
         cleanup()
-        reject(new NanitError('request: timeout', debug))
+        reject(new NanitSocketError('request: timeout', debug))
       }
       function handleMessage(data: Buffer) {
         const response = proto.Response.decode(new Uint8Array(data))
@@ -614,8 +616,10 @@ export default class Nanit extends ApiClient {
           status: json.statusCode,
           headers: {} as Headers,
           retryable:
-            json.statusCode === 403 &&
-            /connections above limit/.test(json.statusMessage),
+            !Boolean(
+              json.statusCode === 403 &&
+                /connections above limit/.test(json.statusMessage),
+            ) || json.statusCode >= 500,
         })
       }
 
@@ -626,7 +630,7 @@ export default class Nanit extends ApiClient {
 
       return json
     } catch (err: any) {
-      if (attempts > 1 || !!err.retryable) {
+      if (!err.retryable || attempts > 1) {
         console.error('[Nanit] startStreaming: error', {
           ...debug,
           err,
@@ -643,10 +647,15 @@ export default class Nanit extends ApiClient {
     }
   }
 
-  async stopStreaming(cameraUID: string, rtmpUrl: string): Promise<{}> {
+  async stopStreaming(
+    cameraUID: string,
+    rtmpUrl: string,
+    attempts: number = 1,
+  ): Promise<{}> {
     const debug = {
       cameraUID,
       rtmpUrl,
+      attempts,
     }
     console.log('[Nanit] stopStreaming', debug)
 
@@ -657,13 +666,23 @@ export default class Nanit extends ApiClient {
         id: proto.StreamIdentifier.MOBILE,
         status: proto.Streaming.Status.STOPPED,
         rtmpUrl,
-        attempts: 1,
+        attempts,
       }),
     })
 
     try {
       const res = await this.socketRequest(cameraUID, request)
       const json = res.toJSON()
+      if (json.statusCode !== 200) {
+        throw new StatusCodeError('stopStreaming: error', {
+          path: 'stopStreaming',
+          body: debug,
+          expectedStatus: 200,
+          status: json.statusCode,
+          headers: {} as Headers,
+          retryable: json.statusCode >= 500,
+        })
+      }
 
       console.log('[Nanit] stopStreaming: success', {
         ...debug,
@@ -671,12 +690,24 @@ export default class Nanit extends ApiClient {
       })
 
       return json
-    } catch (err) {
-      console.warn('[Nanit] stopStreaming: error', {
+    } catch (err: any) {
+      if (err instanceof NanitSocketError) {
+        // @ts-ignore
+        err.retryable = true
+      }
+      if (!err.retryable || attempts > 1) {
+        console.error('[Nanit] stopStreaming: error', {
+          ...debug,
+          err,
+        })
+        // ignore error...
+        return {}
+      }
+      console.warn('[Nanit] stopStreaming: error but retrying..', {
         ...debug,
         err,
       })
-      return {}
+      return this.stopStreaming(cameraUID, rtmpUrl)
     }
   }
 }
