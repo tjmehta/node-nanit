@@ -529,13 +529,7 @@ export default class Nanit extends ApiClient {
         request,
       })
       ws.send(proto.Message.encode(message).finish(), (err) => {
-        if (err != null) {
-          console.warn('[Nanit] request: send error', {
-            ...debug,
-            err,
-          })
-          reject(err)
-        }
+        if (err != null) handleSendError(err)
       })
 
       /*
@@ -551,10 +545,18 @@ export default class Nanit extends ApiClient {
         cleanup()
         reject(new NanitSocketError('request: timeout', debug))
       }
+      function handleSendError(err: Error) {
+        console.warn('[Nanit] request: send error', {
+          ...debug,
+          err,
+        })
+        cleanup()
+        reject(NanitSocketError.wrap(err, 'request: error', debug))
+      }
       function handleMessage(data: Buffer) {
         const response = proto.Response.decode(new Uint8Array(data))
 
-        // could be spammy..
+        // spammy..
         // if (response.requestId == null) {
         //   console.log('[Nanit] unexpected response', {})
         //   return

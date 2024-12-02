@@ -41,70 +41,95 @@ export class CameraSocketsManager {
         }
       }
 
-      let ws = this.websockets.get(cameraUID)
+      let ws: WebSocket | null | undefined = this.websockets.get(cameraUID)
 
-      if (!ws) {
-        ws = await new Promise((resolve, reject) => {
-          const socket = new WebSocket(
-            CameraSocketsManager.getSocketUrl(cameraUID),
-            {
-              ...this.opts,
-              followRedirects: true,
-              maxRedirects: 3,
-            },
+      if (ws != null) {
+        if (ws.readyState === WebSocket.OPEN) {
+          // ws exists and is open. all good, return it.
+          return ws
+        }
+        if (ws.readyState === WebSocket.CONNECTING) {
+          // ws exists and is connecting. probably good? return it.
+          console.warn('[CameraSocketsManager] getCameraSocket: connecting')
+          return ws
+        }
+        // ws exists and is closed or closing. delete it. fall through
+        if (
+          ws.readyState === WebSocket.CLOSED ||
+          ws.readyState === WebSocket.CLOSING
+        ) {
+          const wsStringState =
+            ws.readyState === WebSocket.CLOSED ? 'CLOSED' : 'CLOSING'
+          console.warn(
+            `[CameraSocketsManager] getCameraSocket: ${wsStringState}`,
           )
-          // listen to connect or fail
-          const removeListeners = onceFirstEvent(socket, {
-            error: (err: unknown) => {
-              cleanup()
-              // @ts-ignore
-              if (/Unexpected server response: 401/.test(err.message)) {
-                const statusErr = StatusCodeError.wrap(
-                  err as Error,
-                  'unexpected status',
-                  {
-                    expectedStatus: 200,
-                    status: 401,
-                    headers: this.opts.headers ?? {},
-                    path: CameraSocketsManager.getSocketUrl(cameraUID),
-                  },
-                )
-
-                reject(statusErr)
-                return
-              }
-
-              reject(
-                CameraSocketsManagerError.wrap(
-                  err as Error,
-                  'socket open: error',
-                ),
-              )
-            },
-            close: () => {
-              cleanup()
-              reject(new CameraSocketsManagerError('socket open: closed'))
-            },
-            open: () => {
-              // SUCCESS!
-              cleanup()
-              resolve(socket)
-            },
-          })
-          // redundant timeout, twice as long, just in case
-          const timeoutId = setTimeout(() => {
-            cleanup()
-            reject(new CameraSocketsManagerError('socket open: closed'))
-          }, this.opts.handshakeTimeout * 1.5)
-
-          function cleanup() {
-            removeListeners()
-            clearTimeout(timeoutId)
-          }
-        })
+          await this.closeCameraSocket(cameraUID)
+          ws = null
+          // fall through
+        }
       }
 
-      return ws as WebSocket
+      // ws does not exist or closed, create a new one
+      ws = await new Promise<WebSocket>((resolve, reject) => {
+        const socket = new WebSocket(
+          CameraSocketsManager.getSocketUrl(cameraUID),
+          {
+            ...this.opts,
+            followRedirects: true,
+            maxRedirects: 3,
+          },
+        )
+        // listen to connect or fail
+        const removeListeners = onceFirstEvent(socket, {
+          error: (err: unknown) => {
+            cleanup()
+            // @ts-ignore
+            if (/Unexpected server response: 401/.test(err.message)) {
+              const statusErr = StatusCodeError.wrap(
+                err as Error,
+                'unexpected status',
+                {
+                  expectedStatus: 200,
+                  status: 401,
+                  headers: this.opts.headers ?? {},
+                  path: CameraSocketsManager.getSocketUrl(cameraUID),
+                },
+              )
+
+              reject(statusErr)
+              return
+            }
+
+            reject(
+              CameraSocketsManagerError.wrap(
+                err as Error,
+                'socket open: error',
+              ),
+            )
+          },
+          close: () => {
+            cleanup()
+            reject(new CameraSocketsManagerError('socket open: closed'))
+          },
+          open: () => {
+            // SUCCESS!
+            cleanup()
+            resolve(socket)
+          },
+        })
+        // redundant timeout, twice as long, just in case
+        const timeoutId = setTimeout(() => {
+          cleanup()
+          reject(new CameraSocketsManagerError('socket open: closed'))
+        }, this.opts.handshakeTimeout * 1.5)
+
+        function cleanup() {
+          removeListeners()
+          clearTimeout(timeoutId)
+        }
+      })
+
+      return ws
     },
   )
 
