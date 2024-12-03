@@ -25,6 +25,33 @@ class AppServerError extends BaseError {}
 
 const { get } = envVar
 
+class TempCache<ValueType = string> {
+  private cache = new Map<
+    string,
+    { value: ValueType; timeoutId: NodeJS.Timeout }
+  >()
+  private storageTime: number
+
+  constructor(storageTime: number) {
+    this.storageTime = storageTime
+  }
+
+  set(key: string, value: ValueType) {
+    const { timeoutId: previousTimeoutId } = this.cache.get(key) ?? {}
+    if (previousTimeoutId) clearTimeout(previousTimeoutId)
+
+    const timeoutId = setTimeout(() => {
+      this.cache.delete(key)
+    }, this.storageTime)
+    this.cache.set(key, { value, timeoutId })
+  }
+
+  get(key: string): ValueType | undefined {
+    return this.cache.get(key)?.value
+  }
+}
+const sessionIdToPathCache = new TempCache<string>(1000 * 60 * 5)
+
 const HTTP_PORT = get('HTTP_PORT').default(3000).asPortNumber()
 // should be externally accessible port
 const RTMP_HOST = get('RTMP_HOST').required().asString()
@@ -464,9 +491,8 @@ class AppServer extends AbstractStartable {
       })
 
       console.log(`[RTMP] ${label} ${path}`, { cameraUid, id })
-      const session = context.sessions.get(id)
-      // @ts-ignore - HACK
-      session.__playStreamPath = path
+      // used in doneConnect
+      sessionIdToPathCache.set(id, path)
 
       try {
         console.log(`[RTMP] ${label}: addSubscriber:`, {
@@ -538,6 +564,8 @@ class AppServer extends AbstractStartable {
         id,
         cameraUid,
       })
+      // used in doneConnect
+      sessionIdToPathCache.set(id, path)
 
       const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
       cameraStreamManager!.subscriberPlaying(id)
@@ -558,16 +586,22 @@ class AppServer extends AbstractStartable {
         id,
         cameraUid,
       })
+      // used in doneConnect
+      sessionIdToPathCache.set(id, path)
 
       console.log(`[RTMP] donePlay ${path}`, { cameraUid, id })
       const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
       cameraStreamManager!.subscriberDonePlaying(id)
     })
 
-    nms.on('doneConnect', (id, args) => {
-      const session = context.sessions.get(id)
-      // @ts-ignore - HACK
-      const path = session?.__playStreamPath
+    nms.on('doneConnect', (id) => {
+      const path = sessionIdToPathCache.get(id)
+
+      AppServerError.assert(path, 'path required', {
+        path,
+        id,
+      })
+
       const normalizedPath = normalizePath(path)
       const cameraUid = normalizedPath.split('/').pop() ?? ''
 
