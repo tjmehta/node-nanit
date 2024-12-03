@@ -466,7 +466,7 @@ class AppServer extends AbstractStartable {
       console.log(`[RTMP] ${label} ${path}`, { cameraUid, id })
       const session = context.sessions.get(id)
       // @ts-ignore - HACK
-      session.__playStreamPath = session.playStreamPath
+      session.__playStreamPath = path
 
       try {
         console.log(`[RTMP] ${label}: addSubscriber:`, {
@@ -566,8 +566,8 @@ class AppServer extends AbstractStartable {
 
     nms.on('doneConnect', (id, args) => {
       const session = context.sessions.get(id)
-      // @ts-ignore
-      const path = session?.playStreamPath ?? session?.__playStreamPath
+      // @ts-ignore - HACK
+      const path = session?.__playStreamPath
       const normalizedPath = normalizePath(path)
       const cameraUid = normalizedPath.split('/').pop() ?? ''
 
