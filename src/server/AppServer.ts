@@ -15,7 +15,7 @@ import envVar from 'env-var'
 import { CameraMessageType } from '../validateBabyMessage'
 import { Subscription, tap, throttleTime } from 'rxjs'
 import mqtt from 'async-mqtt'
-import { CameraStreamManager } from './CameraStreamManager'
+import { CameraStreamManager } from '../CameraStreamManager'
 import promiseBackoff from 'promise-backoff'
 import EventEmitter from 'events'
 import context from 'node-media-server/src/node_core_ctx.js'
@@ -357,147 +357,6 @@ class AppServer extends AbstractStartable {
     await this.startPollingCameraMessages()
   }
 
-  private async addSubscriber(cameraUid: string, id: string): Promise<number> {
-    const cameraStreamManager =
-      this.cameraStreamManagers.get(cameraUid) ??
-      new CameraStreamManager(this.nanitManager, cameraUid)
-
-    this.cameraStreamManagers.set(cameraUid, cameraStreamManager)
-
-    let attempt = 0
-    return await promiseBackoff<number>(
-      {
-        timeouts: [10, 20, 30],
-      },
-      async ({ retry }) => {
-        attempt++
-        try {
-          console.log('[RTMP] addSubscriber: attempt', {
-            cameraUid,
-            id,
-            attempt,
-          })
-          const count = await cameraStreamManager.addSubscriber(id)
-          console.log('[RTMP] addSubscriber: success', {
-            cameraUid,
-            id,
-            attempt,
-            subscriberCount: count,
-          })
-          return count
-        } catch (err: any) {
-          console.log('[RTMP] addSubscriber: error', {
-            err,
-            cameraUid,
-            id,
-            attempt,
-          })
-          if (err.status && err.status === 409) {
-            // non-retryable conflict
-            throw err
-          }
-          // retry all errors, including timeout
-          return retry(err)
-        }
-      },
-    )
-  }
-
-  private deleteSubscriber = async (cameraUid: string, id: string) => {
-    const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
-
-    console.log('[RTMP] deleteSubscriber: attempt', {
-      cameraUid,
-      id,
-      cameraStreamManagerExists: !!cameraStreamManager,
-    })
-
-    AppServerError.assert(
-      cameraStreamManager,
-      'cameraStreamManager not found',
-      {
-        cameraUid,
-        id,
-      },
-    )
-    try {
-      await cameraStreamManager.deleteSubscriber(id)
-      console.log('[RTMP] deleteSubscriber: success', {
-        cameraUid,
-        id,
-      })
-    } catch (err) {
-      console.log('[RTMP] deleteSubscriber: error', {
-        err,
-        cameraUid,
-        id,
-      })
-    }
-  }
-
-  private async onPrePlay(label: string, id: string, path: string, args: any) {
-    const normalizedPath = normalizePath(path)
-    const cameraUid = normalizedPath.split('/').pop() ?? ''
-    AppServerError.assert(cameraUid, 'cameraUid required', {
-      path,
-      id,
-      cameraUid,
-    })
-    console.log(`[RTMP] ${label} ${path}`, { cameraUid, id })
-
-    try {
-      console.log(`[RTMP] ${label}: addSubscriber:`, {
-        cameraUid,
-        id,
-        date: Date.now(),
-      })
-      await this.addSubscriber(cameraUid, id)
-      console.log(`[RTMP] ${label}: addSubscriber: success`, {
-        cameraUid,
-        id,
-        date: Date.now(),
-      })
-      setTimeout(() => {
-        // check if sub is idle
-        const sessionIsIdle = context.idlePlayers.has(id)
-        if (!sessionIsIdle) return
-        console.log(`[RTMP] ${label}: session is idle`, {
-          cameraUid,
-          id,
-        })
-        this.deleteSubscriber(cameraUid, id)
-          .then(() => {
-            console.log(
-              `[RTMP] ${label}: session is idle: deleteSubscriber: success`,
-              {
-                cameraUid,
-                id,
-                date: Date.now(),
-              },
-            )
-          })
-          .catch((err) => {
-            console.log(
-              `[RTMP] ${label}: session is idle: deleteSubscriber: error`,
-              {
-                cameraUid,
-                id,
-                date: Date.now(),
-                err,
-              },
-            )
-          })
-      }, 200)
-    } catch (err: any) {
-      console.log(`[RTMP] ${label}: addSubscriber: error`, {
-        err,
-        cameraUid,
-        id,
-        date: Date.now(),
-      })
-    }
-  }
-
   private async startRtmpServer() {
     const nms = new NodeMediaServer({
       rtmp: {
@@ -513,6 +372,8 @@ class AppServer extends AbstractStartable {
         allow_origin: '*',
       },
     })
+
+    /* STREAM EVENTS */
 
     nms.on('prePublish', (id, path, args) => {
       const normalizedPath = normalizePath(path)
@@ -539,7 +400,7 @@ class AppServer extends AbstractStartable {
         return
       }
 
-      cameraStreamManager.publish()
+      cameraStreamManager.streamPublishing()
     })
 
     // nms.on('postPublish', (id, path, args) => {
@@ -582,19 +443,17 @@ class AppServer extends AbstractStartable {
         return
       }
 
-      cameraStreamManager.donePublish()
+      cameraStreamManager.streamDonePublishing()
     })
+
+    /* SUBSCRIBER EVENTS */
 
     // nms.on('preConnect', async (id, path, args) => {
     //   this.onPrePlay('preConnect', id, path, args)
     // })
 
-    nms.on('prePlay', async (id, path, args) => {
-      this.onPrePlay('prePlay', id, path, args)
-    })
-
-    nms.on('postPlay', (id, path, args) => {
-      // only happens on successful play
+    nms.on('prePlay', async (id: string, path: string, args: any) => {
+      const label = 'prePlay'
       const normalizedPath = normalizePath(path)
       const cameraUid = normalizedPath.split('/').pop() ?? ''
       AppServerError.assert(cameraUid, 'cameraUid required', {
@@ -602,6 +461,81 @@ class AppServer extends AbstractStartable {
         id,
         cameraUid,
       })
+      console.log(`[RTMP] ${label} ${path}`, { cameraUid, id })
+
+      try {
+        console.log(`[RTMP] ${label}: addSubscriber:`, {
+          cameraUid,
+          id,
+          date: Date.now(),
+        })
+        const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
+        await cameraStreamManager!.addSubscriber(id)
+        console.log(`[RTMP] ${label}: addSubscriber: success`, {
+          cameraUid,
+          id,
+          date: Date.now(),
+        })
+
+        // TODO: maybe you can handle this properly now with all the rtmp events
+        setTimeout(() => {
+          // check if sub is idle
+          const sessionIsIdle = context.idlePlayers.has(id)
+
+          if (!sessionIsIdle) return
+
+          // sub is idle
+          console.log(`[RTMP] ${label}: session is idle`, {
+            cameraUid,
+            id,
+          })
+          cameraStreamManager!
+            .deleteSubscriber(id)
+            .then(() => {
+              console.log(
+                `[RTMP] ${label}: session is idle: deleteSubscriber: success`,
+                {
+                  cameraUid,
+                  id,
+                  date: Date.now(),
+                },
+              )
+            })
+            .catch((err) => {
+              console.log(
+                `[RTMP] ${label}: session is idle: deleteSubscriber: error`,
+                {
+                  cameraUid,
+                  id,
+                  date: Date.now(),
+                  err,
+                },
+              )
+            })
+        }, 200)
+      } catch (err: any) {
+        console.log(`[RTMP] ${label}: addSubscriber: error`, {
+          err,
+          cameraUid,
+          id,
+          date: Date.now(),
+        })
+      }
+    })
+
+    nms.on('postPlay', (id, path, args) => {
+      // only happens on successful play
+      const normalizedPath = normalizePath(path)
+      const cameraUid = normalizedPath.split('/').pop() ?? ''
+
+      AppServerError.assert(cameraUid, 'cameraUid required', {
+        path,
+        id,
+        cameraUid,
+      })
+
+      const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
+      cameraStreamManager!.subscriberPlaying(id)
       console.log(`[RTMP] postPlay ${path}`, {
         cameraUid,
         id,
@@ -613,30 +547,35 @@ class AppServer extends AbstractStartable {
     nms.on('donePlay', (id, path) => {
       const normalizedPath = normalizePath(path)
       const cameraUid = normalizedPath.split('/').pop() ?? ''
+
       AppServerError.assert(cameraUid, 'cameraUid required', {
         path,
         id,
         cameraUid,
       })
-      console.log(`[RTMP] donePlay`, { cameraUid, id })
-      console.log(`[RTMP] donePlay ${path}`, { cameraUid, id })
 
-      this.deleteSubscriber(cameraUid, id)
-        .then(() => {
-          console.log('[RTMP] donePlay: deleteSubscriber: success', {
-            cameraUid,
-            id,
-            date: Date.now(),
-          })
-        })
-        .catch((err) => {
-          console.log('[RTMP] donePlay: deleteSubscriber: error', {
-            cameraUid,
-            id,
-            date: Date.now(),
-            err,
-          })
-        })
+      console.log(`[RTMP] donePlay ${path}`, { cameraUid, id })
+      const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
+      cameraStreamManager!.subscriberDonePlaying(id)
+    })
+
+    nms.on('doneConnect', (id, args) => {
+      const session = context.sessions.get(id)
+      // @ts-ignore
+      const path = session?.playStreamPath
+      const normalizedPath = normalizePath(path)
+      const cameraUid = normalizedPath.split('/').pop() ?? ''
+
+      AppServerError.assert(cameraUid, 'cameraUid required', {
+        path,
+        id,
+        cameraUid,
+      })
+
+      console.log(`[RTMP] doneConnect ${path}`, { cameraUid, id })
+
+      const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
+      cameraStreamManager!.deleteSubscriber(id)
     })
 
     this.nms = nms
@@ -660,6 +599,14 @@ class AppServer extends AbstractStartable {
     cameras.forEach((camera) => {
       const cameraUid = camera.uid
       const babyUid = camera.babyUid
+
+      // initialize camera stream manager
+      this.cameraStreamManagers.set(
+        cameraUid,
+        new CameraStreamManager(this.nanitManager, cameraUid),
+      )
+
+      // initialize camera message subscription
       if (this.cameraMessageSubscriptions.has(camera.uid)) {
         console.log('[RTMP] camera message subscription already exists', {
           cameraUid,
@@ -703,7 +650,9 @@ class AppServer extends AbstractStartable {
             })
             // publish "SOUND" or "MOTION"
             const EVENT_SUB_ID = 'EVENT'
-            this.addSubscriber(cameraUid, EVENT_SUB_ID)
+            const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
+            cameraStreamManager!
+              .addSubscriber(EVENT_SUB_ID)
               .then(() => {
                 console.log(
                   '[RTMP] camera message: next: addSubscriber: success',
@@ -712,7 +661,8 @@ class AppServer extends AbstractStartable {
                   },
                 )
                 // delete event subscriber..
-                this.deleteSubscriber(cameraUid, EVENT_SUB_ID)
+                cameraStreamManager!
+                  .deleteSubscriber(EVENT_SUB_ID)
                   .then(() => {
                     console.log(
                       '[RTMP] camera message: next:deleteSubscriber: success',
@@ -786,7 +736,7 @@ class AppServer extends AbstractStartable {
 
   private async stopStreamingAll() {
     this.cameraStreamManagers.forEach((cameraStreamManager) => {
-      cameraStreamManager.stopForever()
+      cameraStreamManager.stopStream({ force: true })
     })
     this.cameraStreamManagers.clear()
   }

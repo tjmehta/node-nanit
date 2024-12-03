@@ -447,7 +447,7 @@ export default class Nanit extends ApiClient {
   }
 
   private async getCameraSocket(
-    cameraUID: string,
+    cameraUid: string,
     attempt: number = 1,
   ): Promise<WebSocket> {
     NanitError.assert(
@@ -455,13 +455,13 @@ export default class Nanit extends ApiClient {
       'session required (login first)',
     )
     const debug = {
-      cameraUID,
+      cameraUid,
       attempt,
     }
     console.log('[Nanit] getCameraSocket', debug)
 
     try {
-      const ws = await this.cameraSocketsManager.getCameraSocket(cameraUID, {
+      const ws = await this.cameraSocketsManager.getCameraSocket(cameraUid, {
         headers: {
           Authorization: `token ${this.sessionCache.value.token}`,
         },
@@ -480,7 +480,7 @@ export default class Nanit extends ApiClient {
             attempt,
             err,
           })
-          return this.getCameraSocket(cameraUID, attempt + 1)
+          return this.getCameraSocket(cameraUid, attempt + 1)
         }
       }
 
@@ -497,14 +497,14 @@ export default class Nanit extends ApiClient {
   }
 
   async socketRequest<Response extends proto.Response>(
-    cameraUID: string,
+    cameraUid: string,
     request: proto.Request,
   ): Promise<Response> {
-    const ws = await this.getCameraSocket(cameraUID)
+    const ws = await this.getCameraSocket(cameraUid)
 
     return new Promise((resolve, reject) => {
       const debug = {
-        cameraUID,
+        cameraUid,
         requestId: request.id,
         requestType: request.type,
       }
@@ -586,12 +586,12 @@ export default class Nanit extends ApiClient {
   }
 
   async startStreaming(
-    cameraUID: string,
+    cameraUid: string,
     rtmpUrl: string,
     attempts: number = 1,
   ): Promise<{}> {
     const debug = {
-      cameraUID,
+      cameraUid,
       rtmpUrl,
       attempts,
     }
@@ -608,7 +608,7 @@ export default class Nanit extends ApiClient {
       }),
     })
     try {
-      const res = await this.socketRequest(cameraUID, request)
+      const res = await this.socketRequest(cameraUid, request)
       const json = res.toJSON()
       if (json.statusCode !== 200) {
         throw new StatusCodeError('startStreaming: error', {
@@ -646,18 +646,18 @@ export default class Nanit extends ApiClient {
         ...debug,
         err,
       })
-      await this.stopStreaming(cameraUID, rtmpUrl)
-      return this.startStreaming(cameraUID, rtmpUrl, attempts + 1)
+      await this.stopStreaming(cameraUid, rtmpUrl)
+      return this.startStreaming(cameraUid, rtmpUrl, attempts + 1)
     }
   }
 
   async stopStreaming(
-    cameraUID: string,
+    cameraUid: string,
     rtmpUrl: string,
     attempts: number = 1,
   ): Promise<{}> {
     const debug = {
-      cameraUID,
+      cameraUid,
       rtmpUrl,
       attempts,
     }
@@ -675,7 +675,7 @@ export default class Nanit extends ApiClient {
     })
 
     try {
-      const res = await this.socketRequest(cameraUID, request)
+      const res = await this.socketRequest(cameraUid, request)
       const json = res.toJSON()
       if (json.statusCode !== 200) {
         throw new StatusCodeError('stopStreaming: error', {
@@ -711,7 +711,7 @@ export default class Nanit extends ApiClient {
         ...debug,
         err,
       })
-      return this.stopStreaming(cameraUID, rtmpUrl)
+      return this.stopStreaming(cameraUid, rtmpUrl)
     }
   }
 }
