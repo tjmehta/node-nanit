@@ -1,8 +1,10 @@
 import BaseError from 'baseerr'
 import { NanitManager } from './server/nanitManager'
-import { get } from 'env-var'
+import envVar from 'env-var'
 import memoizeConcurrent from 'memoize-concurrent'
 import timeout from 'abortable-timeout'
+
+const { get } = envVar
 
 const RTMP_HOST = get('RTMP_HOST').required().asString()
 const RTMP_PORT = get('RTMP_PORT').default(1935).asPortNumber()
