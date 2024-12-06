@@ -1,6 +1,6 @@
 {
   "name": "nanit-camera",
-  "version": "1.8.5",
+  "version": "1.8.6",
   "description": "Description",
   "main": "dist/cjs/index.cjs",
   "module": "dist/esm/index.mjs",
