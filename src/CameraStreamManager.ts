@@ -191,11 +191,15 @@ export class CameraStreamManager {
 
     console.log('[CameraStreamManager] startStream', debug)
 
-    this.cancelScheduledStopStream()
+    if (
+      status === CameraStreamStatus.START_REQUESTED ||
+      status === CameraStreamStatus.START_RESPONDED ||
+      status === CameraStreamStatus.PUBLISHING
+    ) {
+      this.cancelScheduledStopStream()
+      return
+    }
 
-    if (status === CameraStreamStatus.START_REQUESTED) return
-    if (status === CameraStreamStatus.START_RESPONDED) return
-    if (status === CameraStreamStatus.PUBLISHING) return
     if (status === CameraStreamStatus.STOP_REQUESTED) {
       // wait for stop stream to complete
       try {
@@ -328,8 +332,13 @@ export class CameraStreamManager {
             cameraUid: this.cameraUid,
           },
         )
+        // reset status
         if (this.cameraStreamStatus === CameraStreamStatus.STOP_REQUESTED) {
           this.cameraStreamStatus = previousStatus
+        }
+        if (err.name === 'AbortError') {
+          // if aborted, skip logging
+          throw err
         }
         console.log('[CameraStreamManager] stopStream: error', {
           ...debug,
@@ -370,7 +379,8 @@ export class CameraStreamManager {
         '[CameraStreamManager] scheduleStopStream: stopStream: error',
         {
           ...debug,
-          err,
+          // minimize error logging if aborted
+          err: err.name === 'AbortError' ? 'AbortError: aborted' : err,
         },
       )
     } finally {

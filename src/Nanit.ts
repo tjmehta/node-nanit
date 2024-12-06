@@ -621,7 +621,7 @@ export default class Nanit extends ApiClient {
           headers: {} as Headers,
           retryable:
             Boolean(
-              json.statusCode === 403 &&
+              json.status === 403 &&
                 /connections above limit/.test(json.statusMessage),
             ) || json.statusCode >= 500,
         })
