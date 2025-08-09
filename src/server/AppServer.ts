@@ -50,6 +50,9 @@ class TempCache<ValueType = string> {
 }
 const sessionIdToPathCache = new TempCache<string>(1000 * 60 * 5)
 
+const FORCE_SOUND_AS_MOTION = get('FORCE_SOUND_AS_MOTION')
+  .default('false')
+  .asBool()
 const HTTP_PORT = get('HTTP_PORT').default(3000).asPortNumber()
 // should be externally accessible port
 const RTMP_HOST = get('RTMP_HOST').required().asString()
@@ -296,12 +299,16 @@ class AppServer extends AbstractStartable {
     function submitForm(event, cameraUid, type) {
       event.preventDefault();
       fetch(\`/cameras/\${cameraUid}/events/\${type}\`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        method: 'POST'
       })
-      .then(response => response.json())
+      .then(response => {
+        if (response.status >= 400) {
+          return response.text().then(text => {
+            throw new Error(text)
+          })
+        }
+        return response.text()
+      })
       .then(data => console.log('Success:', data))
       .catch((error) => alert('Error:' + error.message));
     }
@@ -335,11 +342,13 @@ class AppServer extends AbstractStartable {
       })
       const subState = this.cameraMessageSubscriptions.get(cameraUid)
       if (!subState) {
+        ctx.status = 404
         ctx.body = 'Camera not found'
         return
       }
       const upperType = type.toUpperCase() as CameraMessageType
       if (!NANIT_EVENTS_POLLING_TYPES.includes(upperType)) {
+        ctx.status = 400
         ctx.body = 'Invalid event type'
         return
       }
@@ -738,6 +747,15 @@ class AppServer extends AbstractStartable {
                     mqttTopic(cameraUid),
                     message.type.toUpperCase() as CameraMessageType,
                   )
+                  if (
+                    FORCE_SOUND_AS_MOTION &&
+                    message.type.toUpperCase() === CameraMessageType.SOUND
+                  ) {
+                    this.mqtt?.publish(
+                      mqttTopic(cameraUid),
+                      CameraMessageType.MOTION,
+                    )
+                  }
                 }, 1000)
               })
           },
