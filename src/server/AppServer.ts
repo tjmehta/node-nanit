@@ -467,6 +467,9 @@ class AppServer extends AbstractStartable {
         id,
         date: Date.now(),
       })
+      // Cache/refresh path for doneConnect (fires right after this)
+      // This handles long-running streams where the prePublish cache entry may have expired
+      sessionIdToPathCache.set(id, path)
 
       const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
