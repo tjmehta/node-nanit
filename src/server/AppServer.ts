@@ -422,6 +422,8 @@ class AppServer extends AbstractStartable {
         id,
         date: Date.now(),
       })
+      // Cache path for potential use in doneConnect
+      sessionIdToPathCache.set(id, path)
 
       const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
@@ -465,6 +467,9 @@ class AppServer extends AbstractStartable {
         id,
         date: Date.now(),
       })
+      // Cache/refresh path for doneConnect (fires right after this)
+      // This handles long-running streams where the prePublish cache entry may have expired
+      sessionIdToPathCache.set(id, path)
 
       const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
 
@@ -604,24 +609,32 @@ class AppServer extends AbstractStartable {
     nms.on('doneConnect', (id) => {
       const path = sessionIdToPathCache.get(id)
 
-      AppServerError.assert(path, 'path required', {
-        path,
-        id,
-      })
+      // Path may be undefined if:
+      // 1. This is a publisher connection (publishers are handled separately in donePublish)
+      // 2. The connection was established before this process started
+      // 3. The cache entry expired (5 minute TTL)
+      // 4. The connection closed before prePlay/postPlay was called
+      if (!path) {
+        console.warn(`[RTMP] doneConnect: path not found for session, skipping cleanup`, { id })
+        return
+      }
 
       const normalizedPath = normalizePath(path)
       const cameraUid = normalizedPath.split('/').pop() ?? ''
 
-      AppServerError.assert(cameraUid, 'cameraUid required', {
-        path,
-        id,
-        cameraUid,
-      })
+      if (!cameraUid) {
+        console.warn(`[RTMP] doneConnect: cameraUid not found`, { path, id })
+        return
+      }
 
       console.log(`[RTMP] doneConnect ${path}`, { cameraUid, id })
 
       const cameraStreamManager = this.cameraStreamManagers.get(cameraUid)
-      cameraStreamManager!.deleteSubscriber(id)
+      if (!cameraStreamManager) {
+        console.warn(`[RTMP] doneConnect: cameraStreamManager not found`, { path, id, cameraUid })
+        return
+      }
+      cameraStreamManager.deleteSubscriber(id)
     })
 
     this.nms = nms
